@@ -59,6 +59,12 @@ final class AppModel {
     /// Link status of every guarded live operation, by operation ID.
     var liveIssues: [Int64: [LiveStatus]] = [:]
     var liveSelection: String?
+    var isEjecting = false
+    /// Only the normal data folder registers the real app as a login item; test sessions don't.
+    var usesDefaultDataDir: Bool {
+        FileOps.same(dataDir, FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/SwitchKho"))
+    }
     var folderScan: ScanResult?
     var folderPath: [ScanNode] = []
     var staleDays = 180 { didSet { scheduleStaleFiles() } }
@@ -173,7 +179,10 @@ final class AppModel {
             holdDays: { Int((try? ledger.setting("hold.days")) ?? nil ?? "") ?? 7 },
             now: { Date() },
             appRunning: { bundleID in
-                RunningProcesses.isRunning(bundleID: bundleID, appURL: appIndex.value.withLock { $0[bundleID] })
+                // Before the first scan the index is empty; helpers must still be seen.
+                let url = appIndex.value.withLock { $0[bundleID] }
+                    ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+                return RunningProcesses.isRunning(bundleID: bundleID, appURL: url)
             })
 
         observeJobs()
@@ -181,6 +190,7 @@ final class AppModel {
         enqueueRecoverAndCommit()
         observeWorkspace()
         liveGuard = LiveGuard(model: self)
+        liveGuard?.start()
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.enqueueCommitDue() }
         }
@@ -227,8 +237,15 @@ final class AppModel {
 
     func refreshVolumes() {
         volumes = VolumeService.mountedVolumes()
-        let savedUUID = savedKhoUUID
-        let savedToken = (try? ledger.setting("kho.token")) ?? nil
+        // A failed read must not look like "Kho gone": the guard would stop apps for nothing.
+        let savedUUID: String?, savedToken: String?
+        do {
+            savedUUID = try ledger.setting("kho.uuid")
+            savedToken = try ledger.setting("kho.token")
+        } catch {
+            lastError = "Không đọc được cài đặt Kho: \(error.localizedDescription)"
+            return
+        }
         let wasMounted = kho != nil
         let confirmed = KhoIdentity.confirm(volumes: volumes, savedUUID: savedUUID, savedToken: savedToken,
                                             linkRoot: linkRoot)
@@ -268,7 +285,8 @@ final class AppModel {
     /// Classifies every guarded link, puts lost locks back, and records the result.
     func checkLiveIntegrity() {
         guard let guardian = liveGuard else { return }
-        let ops = guardian.liveOperations(), ledger = self.ledger
+        guard let ops = guardian.liveOperations() else { return }
+        let ledger = self.ledger
         let layout = kho?.layout ?? KhoLayout(khoRoot: URL(fileURLWithPath: "/nonexistent"), linkRoot: linkRoot)
         let mounted = kho != nil
         Task.detached { [weak self] in

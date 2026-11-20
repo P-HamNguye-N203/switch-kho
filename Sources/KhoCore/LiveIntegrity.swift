@@ -28,7 +28,8 @@ public enum LiveIntegrity {
     /// Items of live operations that still need guarding.
     public static func items(of op: Operation, ledger: Ledger, layout: KhoLayout) -> [(original: URL, khoTarget: URL)] {
         ((try? ledger.items(op.id)) ?? []).compactMap { item in
-            guard item.role == .normal, !item.restored, let rel = item.khoRelPath,
+            guard item.role == .normal, !item.restored, !item.released, item.stage != .swapped,
+                  let rel = item.khoRelPath,
                   let target = try? layout.symlinkTarget(relative: rel) else { return nil }
             return (item.originalURL, target)
         }

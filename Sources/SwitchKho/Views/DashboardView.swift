@@ -19,6 +19,13 @@ struct DashboardView: View {
                     .padding(10)
                     .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 }
+                if model.liveIssues.values.contains(where: { $0.contains { $0 != .ok && $0 != .khoMissing } }) {
+                    HStack {
+                        StatusLabel("Một app chạy từ Kho có liên kết cần xử lý", systemImage: "exclamationmark.triangle.fill")
+                        Spacer()
+                        Button("Xem") { model.section = .live }
+                    }
+                }
                 internalCard
                 khoCard
                 holdingCard

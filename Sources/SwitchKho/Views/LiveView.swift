@@ -66,6 +66,13 @@ struct LiveView: View {
 
     private var operations: [LedgerOperation] { model.liveGuard?.liveOperations() ?? [] }
 
+    /// Copies kept from while the Kho was away, now only on the Kho.
+    private var keptCopies: [LedgerOperation] {
+        ((try? model.ledger.operations(states: [.committed, .restoring])) ?? []).filter { op in
+            op.kind == .appLive && ((try? model.ledger.items(op.id)) ?? []).contains { $0.role == .setAside }
+        }
+    }
+
     @ViewBuilder
     private var liveList: some View {
         let ops = operations
@@ -73,7 +80,21 @@ struct LiveView: View {
             ContentUnavailableView("Chưa có app nào chạy từ Kho", systemImage: "externaldrive.connected.to.line.below",
                                    description: Text("Dữ liệu Application Support của app được dời lên Kho, chỗ cũ là liên kết."))
         } else {
-            List(ops, id: \.id) { op in row(op) }
+            List {
+                ForEach(ops, id: \.id) { op in row(op) }
+                if !keptCopies.isEmpty {
+                    Section("Bản tạo khi Kho vắng (trên Kho)") {
+                        ForEach(keptCopies, id: \.id) { op in
+                            HStack {
+                                Text(op.title ?? "#\(op.id)")
+                                Spacer()
+                                Button("Lấy về cạnh chỗ cũ") { model.bringBackLive(op) }
+                                    .disabled(model.kho == nil || model.busyOps.contains(op.id))
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

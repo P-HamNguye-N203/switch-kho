@@ -4,7 +4,9 @@ import KhoCore
 extension AppModel {
     /// Ejects the Kho only after copy jobs stopped and every app running from it has quit.
     func guardedEject() async {
-        guard let volume = khoVolume else { return }
+        guard let volume = khoVolume, !isEjecting else { return }
+        isEjecting = true
+        defer { isEjecting = false }
         // No new job (scheduled ones included) may start on the Kho while it is being ejected.
         await jobQueue.suspend()
         defer { Task { await jobQueue.resume() } }

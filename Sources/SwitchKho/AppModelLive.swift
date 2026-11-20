@@ -9,7 +9,7 @@ extension AppModel {
     }
 
     /// Runs `body` as a cancellable job with progress, then refreshes everything the guard watches.
-    private func liveJob(_ title: String, opID: Int64? = nil, done: String,
+    private func liveJob(_ title: String, opID: Int64? = nil, done: String, onSuccess: (() -> Void)? = nil,
                          _ body: @escaping @Sendable (@escaping @Sendable (CopyProgress) -> Void,
                                                       @escaping @Sendable () -> Bool) throws -> Void) {
         if let opID { busyOps.insert(opID) }
@@ -22,6 +22,9 @@ extension AppModel {
                     }, { ctx.isCancelled })
                 }
                 notify(done)
+                onSuccess?()
+            } catch is CancellationError {
+                notify("Đã huỷ: \(title)")
             } catch {
                 lastError = "\(title): \(error.localizedDescription)"
             }
@@ -36,14 +39,19 @@ extension AppModel {
     func relocateLive(_ fp: AppFootprint, folders: [AppDataFolder]) {
         guard let kho else { lastError = "Hãy cắm Kho trước."; return }
         let service = offloadService, ledger = self.ledger, layout = kho.layout
-        liveJob("Chạy \(fp.app.name) từ Kho", done: "\(fp.app.name) giờ chạy từ Kho. Luôn tháo Kho bằng nút Eject của Switch Kho.") { progress, cancelled in
+        liveJob("Chạy \(fp.app.name) từ Kho", done: "\(fp.app.name) giờ chạy từ Kho. Luôn tháo Kho bằng nút Eject của Switch Kho.",
+                onSuccess: { [weak self] in self?.enableLoginItemForGuard() }) { progress, cancelled in
             _ = try LiveRelocator.relocate(fp, folders: folders, service: service, ledger: ledger, layout: layout,
                                            isRunning: { RunningProcesses.isRunning(bundleID: $0.bundleID, appURL: $0.url) },
                                            progress: progress, isCancelled: cancelled)
         }
-        // The guard only works while Switch Kho runs.
-        if !LoginItem.isEnabled {
-            do { try LoginItem.setEnabled(true) } catch { lastError = "Không bật được mục đăng nhập: \(error.localizedDescription)" }
+    }
+
+    /// The guard only works while Switch Kho runs, so it opens at login once an app lives on the Kho.
+    func enableLoginItemForGuard() {
+        guard usesDefaultDataDir, !LoginItem.isEnabled, !LoginItem.needsApproval else { return }
+        do { try LoginItem.setEnabled(true) } catch {
+            lastError = "Không bật được mở cùng máy: \(error.localizedDescription)"
         }
     }
 

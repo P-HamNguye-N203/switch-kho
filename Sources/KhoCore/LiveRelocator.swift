@@ -72,7 +72,8 @@ public enum LiveRelocator {
         // A real folder where our link should be is data made while the Kho was away; it has to
         // be kept (set aside) first or it would be lost or mixed in.
         let replaced = try ledger.items(opID).filter { item in
-            item.role == .normal && !item.restored && FileOps.exists(item.originalURL)
+            item.role == .normal && !item.restored && !item.released && item.stage != .swapped
+                && FileOps.exists(item.originalURL)
                 && !(FileOps.isSymlink(item.originalURL) && isOurLink(item.originalURL, service))
         }
         if !replaced.isEmpty {

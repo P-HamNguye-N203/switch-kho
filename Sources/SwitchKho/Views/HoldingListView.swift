@@ -114,7 +114,14 @@ struct HoldingListView: View {
                         .disabled(model.kho == nil)
                         .help(model.kho == nil ? "Cắm Kho để chấp nhận" : "")
                 }
-                Button("Hoàn tác") { model.undo(row.op.id) }
+                // Live data must go through the checks for folders made while the Kho was away.
+                Button("Hoàn tác") {
+                    if row.op.kind == .appLive && row.items.contains(where: { $0.role == .normal }) {
+                        model.bringBackLive(row.op)
+                    } else {
+                        model.undo(row.op.id)
+                    }
+                }
                 Divider().frame(height: 16)
                 Button("Xoá ngay", role: .destructive) { confirmCommit = row }
                     .disabled(model.kho == nil)

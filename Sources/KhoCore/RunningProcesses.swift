@@ -37,9 +37,9 @@ public enum RunningProcesses {
     }
 
     /// Processes running an executable inside the bundle, helpers included.
-    public static func pids(inside appURL: URL) -> [Int32] {
+    public static func pids(inside appURL: URL, processes list: [(pid: Int32, path: String)]? = nil) -> [Int32] {
         let prefix = (FileOps.realpath(appURL.path) ?? appURL.path) + "/"
-        return processes().filter { p in
+        return (list ?? processes()).filter { p in
             p.path.hasPrefix("/") && ((FileOps.realpath(p.path) ?? p.path).hasPrefix(prefix) || p.path.hasPrefix(prefix))
         }.map(\.pid)
     }

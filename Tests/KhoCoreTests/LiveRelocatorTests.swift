@@ -115,3 +115,59 @@ import Testing
         #expect(LiveRelocator.requests(for: fp, folders: fp.folders, home: s.fx.sb.home, layout: s.fx.sb.layout).isEmpty)
     }
 }
+
+@Suite(.serialized) struct LiveRelocatorEdgeTests {
+    /// An undo that stopped after the first of two folders: the folder already back is a real
+    /// folder now, which must not block finishing the job.
+    @Test func interruptedUndoWithTwoFoldersCanFinish() throws {
+        let fx = try ServiceFixture()
+        defer { fx.cleanup() }
+        let support = fx.sb.home.appendingPathComponent("Library/Application Support")
+        let a = support.appendingPathComponent("FakeA"), b = support.appendingPathComponent("FakeB")
+        try fx.sb.makeFile(a.appendingPathComponent("a.db"), bytes: 4096, seed: 1)
+        try fx.sb.makeFile(b.appendingPathComponent("b.db"), bytes: 4096, seed: 2)
+        let root = "SwitchKho/Live/test.fake/Library/Application Support"
+        let opID = try fx.offload([
+            OffloadRequest(original: a, khoRelPath: "\(root)/FakeA", purpose: .appData, leaveSymlink: true),
+            OffloadRequest(original: b, khoRelPath: "\(root)/FakeB", purpose: .appData, leaveSymlink: true),
+        ], kind: .appLive, bundleID: "test.fake")
+        // Stop the undo once the first folder is back as a real folder.
+        #expect(throws: CancellationError.self) {
+            try fx.service.undo(opID: opID, isCancelled: { !FileOps.isSymlink(a) })
+        }
+        #expect(!FileOps.isSymlink(a) && FileOps.exists(a.appendingPathComponent("a.db")))
+        #expect(FileOps.isSymlink(b))
+        let op = try #require(try fx.ledger.operation(opID))
+        let statuses = LiveIntegrity.check(items: LiveIntegrity.items(of: op, ledger: fx.ledger, layout: fx.sb.layout),
+                                           khoMounted: true)
+        #expect(statuses == [.ok])
+        try LiveRelocator.bringBack(opID: opID, service: fx.service, ledger: fx.ledger)
+        #expect(!FileOps.isSymlink(b) && FileOps.exists(b.appendingPathComponent("b.db")))
+        #expect(try fx.ledger.operation(opID)?.state == .undone)
+    }
+
+    /// A copy kept from while the Kho was away comes back beside the live link, never over it.
+    @Test func restoredSetAsideLandsBesideTheLink() throws {
+        let fx = try ServiceFixture()
+        defer { fx.cleanup() }
+        let support = fx.sb.home.appendingPathComponent("Library/Application Support/Fake")
+        try fx.sb.makeFile(support.appendingPathComponent("data.db"), bytes: 4096, seed: 1)
+        let liveID = try fx.offload([OffloadRequest(original: support,
+                                                    khoRelPath: "SwitchKho/Live/test.fake/Library/Application Support/Fake",
+                                                    purpose: .appData, leaveSymlink: true)],
+                                    kind: .appLive, bundleID: "test.fake")
+        _ = lchflags(support.path, 0)
+        unlink(support.path)
+        try fx.sb.makeFile(support.appendingPathComponent("away.txt"), bytes: 10, seed: 2)
+        let asideID = try fx.service.setAside(liveOpID: liveID, folder: support)
+        #expect(FileOps.isSymlink(support))
+        fx.advance(days: 8)
+        #expect(Set(fx.service.commitDue()) == [liveID, asideID])
+        try LiveRelocator.bringBack(opID: asideID, service: fx.service, ledger: fx.ledger)
+        #expect(FileOps.isSymlink(support))
+        let beside = support.deletingLastPathComponent().appendingPathComponent("Fake (bản khi Kho vắng)")
+        #expect(FileOps.exists(beside.appendingPathComponent("away.txt")))
+        #expect(try fx.ledger.operation(asideID)?.state == .restored)
+        #expect(try fx.ledger.operation(liveID)?.state == .committed)
+    }
+}

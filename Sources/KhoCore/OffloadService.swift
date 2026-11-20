@@ -706,7 +706,16 @@ public final class OffloadService: Sendable {
             for item in try ledger.items(opID) where !item.restored {
                 if isCancelled() { throw CancellationError() }
                 try revalidate(item, op: op)
-                try pullBackFromKho(item.id, op: op, layout: layout, target: item.originalURL,
+                var target = item.originalURL
+                if item.role == .setAside {
+                    // The original place is the live link; this copy goes beside it, like undo.
+                    if let done = item.restoredPath { target = URL(fileURLWithPath: done) } else {
+                        target = HoldingArea.siblingCandidates(item.originalURL, suffix: "bản khi Kho vắng")
+                            .first { !FileOps.exists($0) } ?? target
+                        try ledger.updateItem(item.id, restoredPath: .some(target.path))
+                    }
+                }
+                try pullBackFromKho(item.id, op: op, layout: layout, target: target,
                                     progress: progress, isCancelled: isCancelled)
                 try ledger.updateItem(item.id, restored: true)
             }
