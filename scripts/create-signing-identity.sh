@@ -1,8 +1,16 @@
 #!/bin/bash
 # Creates the "Switch Kho Local" code-signing identity inside a dedicated,
 # password-protected keychain that auto-locks after 15 minutes.
-# Run this yourself in Terminal.app: it asks for passwords interactively.
+# Without arguments it asks for passwords interactively (run it in Terminal.app).
+# With --auto it generates a random keychain password and stores it in the login
+# keychain (service "switchkho-signing"), so scripts/build-app.sh can unlock the
+# signing keychain without prompting.
 set -euo pipefail
+
+AUTO=0
+[ "${1:-}" = "--auto" ] && AUTO=1
+PW_SERVICE="switchkho-signing"
+KCPW=()
 
 KC="$HOME/Library/Keychains/switchkho-signing.keychain-db"
 NAME="Switch Kho Local"
@@ -12,9 +20,19 @@ if security find-identity -p codesigning "$KC" 2>/dev/null | grep -q "$NAME"; th
     exit 0
 fi
 
+if [ "$AUTO" -eq 1 ]; then
+    if ! pw="$(security find-generic-password -s "$PW_SERVICE" -a "$USER" -w 2>/dev/null)"; then
+        [ -e "$KC" ] && { echo "Keychain ký đã có nhưng không tìm thấy mật khẩu trong login keychain; chạy không có --auto."; exit 1; }
+        pw="$(/usr/bin/openssl rand -hex 24)"
+        security add-generic-password -s "$PW_SERVICE" -a "$USER" -l "Switch Kho signing keychain" \
+            -T /usr/bin/security -w "$pw"
+    fi
+    KCPW=(-p "$pw")
+fi
+
 if [ ! -e "$KC" ]; then
-    echo "Tạo keychain riêng. Hãy đặt một mật khẩu mới và tự ghi nhớ."
-    security create-keychain "$KC"
+    echo "Tạo keychain riêng."
+    security create-keychain ${KCPW[@]+"${KCPW[@]}"} "$KC"
 fi
 security set-keychain-settings -lut 900 "$KC"
 
@@ -56,14 +74,18 @@ legacy=()
 if /usr/bin/openssl version | grep -q "^OpenSSL 3"; then
     legacy=(-legacy)
 fi
-/usr/bin/openssl pkcs12 -export "${legacy[@]}" -inkey "$work/key.pem" -in "$work/cert.pem" \
+/usr/bin/openssl pkcs12 -export ${legacy[@]+"${legacy[@]}"} -inkey "$work/key.pem" -in "$work/cert.pem" \
     -name "$NAME" -out "$work/id.p12" -passout env:P12PW
 
-echo "Mở khoá keychain riêng (nhập mật khẩu vừa đặt)."
-security unlock-keychain "$KC"
+echo "Mở khoá keychain riêng."
+security unlock-keychain ${KCPW[@]+"${KCPW[@]}"} "$KC"
 security import "$work/id.p12" -k "$KC" -P "$P12PW" -T /usr/bin/codesign
 unset P12PW
-echo "Cho phép codesign dùng khoá (nhập mật khẩu keychain riêng lần nữa)."
-security set-key-partition-list -S apple-tool:,apple: -s "$KC" >/dev/null
+echo "Cho phép codesign dùng khoá."
+if [ "$AUTO" -eq 1 ]; then
+    security set-key-partition-list -S apple-tool:,apple: -s -k "$pw" "$KC" >/dev/null
+else
+    security set-key-partition-list -S apple-tool:,apple: -s "$KC" >/dev/null
+fi
 
 echo "Xong: danh tính \"$NAME\" nằm trong $KC"

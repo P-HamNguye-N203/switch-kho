@@ -306,6 +306,12 @@ final class AppModel {
         }
     }
 
+    func acceptKhoCopy(_ opID: Int64) {
+        runOperation("Chấp nhận bản trên Kho #\(opID)") { s, ctx in
+            try s.acceptKhoCopy(opID: opID, isCancelled: { ctx.isCancelled })
+        }
+    }
+
     func markReviewed(_ opID: Int64) {
         try? ledger.setNeedsReview(opID, false)
         ledger.log(action: "Đánh dấu đã kiểm", path: nil, detail: "#\(opID)", ok: true)

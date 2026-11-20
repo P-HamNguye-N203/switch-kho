@@ -6,6 +6,7 @@ struct HoldingListView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmCommit: HoldingRow?
     @State private var confirmReviewed: HoldingRow?
+    @State private var confirmAccept: HoldingRow?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -42,6 +43,12 @@ struct HoldingListView: View {
             Button("Thôi", role: .cancel) { confirmCommit = nil }
         } message: { _ in
             Text("Không thể hoàn tác sau bước này. Bản trên Kho sẽ được băm lại trước khi xoá.")
+        }
+        .confirmationDialog("Chấp nhận bản hiện tại trên Kho?", isPresented: .constant(confirmAccept != nil), presenting: confirmAccept) { row in
+            Button("Chấp nhận bản trên Kho", role: .destructive) { model.acceptKhoCopy(row.op.id); confirmAccept = nil }
+            Button("Thôi", role: .cancel) { confirmAccept = nil }
+        } message: { _ in
+            Text("Bản trên Kho khác lúc cất (có thể do bạn sửa qua liên kết). Sau khi chấp nhận, bản cũ trong vùng chờ sẽ được xoá ở lần dọn kế tiếp. Hãy mở trong Finder kiểm trước.")
         }
         .confirmationDialog("Đánh dấu đã kiểm?", isPresented: .constant(confirmReviewed != nil), presenting: confirmReviewed) { row in
             Button("Đã kiểm") { model.markReviewed(row.op.id); confirmReviewed = nil }
@@ -85,6 +92,10 @@ struct HoldingListView: View {
         } else {
             switch row.op.state {
             case .holding:
+                if row.op.error != nil {
+                    Button("Mở trong Finder") { model.reveal(row) }
+                    Button("Chấp nhận bản trên Kho") { confirmAccept = row }.disabled(model.kho == nil)
+                }
                 Button("Hoàn tác") { model.undo(row.op.id) }
                 Button("Xoá ngay") { confirmCommit = row }.disabled(model.kho == nil)
             case .undoing, .restoring, .moving, .committing:

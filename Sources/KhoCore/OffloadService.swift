@@ -514,6 +514,37 @@ public final class OffloadService: Sendable {
         }
     }
 
+    // MARK: Accept the Kho copy
+
+    /// The user confirms that the current Kho copy is correct (for example after editing
+    /// files through a symlink). Re-snapshots every file on the Kho so later checks compare
+    /// against what is there now. Only the user triggers this; nothing calls it automatically.
+    public func acceptKhoCopy(opID: Int64, isCancelled: @escaping @Sendable () -> Bool = { false }) throws {
+        let op = try requireOperation(opID)
+        guard op.state == .holding || op.state == .committed else {
+            throw KhoError.invalidState("Chỉ chấp nhận được khi thao tác đang ở vùng chờ hoặc đã cất xong")
+        }
+        guard let layout = khoFor(op) else { throw KhoError.khoOffline }
+        var updates: [(Int64, String)] = []
+        for item in try ledger.items(opID) {
+            guard let rel = item.khoRelPath else { throw KhoError.invalidState("Mục #\(item.id) không có bản trên Kho") }
+            let root = try layout.absoluteURL(relative: rel)
+            guard FileOps.exists(root) else { throw KhoError.notFound(root.path) }
+            var files: [CopiedFile] = []
+            for entry in try copier.listEntries(root) where entry.kind == .file {
+                if isCancelled() { throw CancellationError() }
+                let (segments, digest) = try ContentDigest.segmentsAndDigest(entry.src)
+                guard let stamp = entry.stamp else { continue }
+                files.append(CopiedFile(relPath: entry.rel, logicalSize: stamp.size, allocated: entry.allocated,
+                                        segments: segments, digest: digest, stamp: stamp))
+            }
+            updates.append((item.id, Self.encodeFiles(files)))
+        }
+        for (id, json) in updates { try ledger.updateItem(id, filesJSON: json) }
+        try ledger.setError(opID, nil)
+        ledger.log(action: "Đã chấp nhận bản hiện tại trên Kho", path: op.title, detail: "#\(opID)", ok: true)
+    }
+
     // MARK: Undo
 
     public func undo(opID: Int64, isCancelled: @escaping @Sendable () -> Bool = { false }) throws {

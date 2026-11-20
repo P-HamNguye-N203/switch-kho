@@ -18,6 +18,13 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/SwitchKho "$APP/Contents/MacOS/"
 cp Resources/Info.plist "$APP/Contents/"
 
+# Unlock with the password kept in the login keychain, when the signing keychain was
+# created with --auto.
+if pw="$(security find-generic-password -s switchkho-signing -a "$USER" -w 2>/dev/null)"; then
+    security unlock-keychain -p "$pw" "$KC" 2>/dev/null || true
+    unset pw
+fi
+
 set +e
 sign_output="$(codesign --force --options runtime --timestamp=none \
     --keychain "$KC" -s "Switch Kho Local" "$APP" 2>&1)"
