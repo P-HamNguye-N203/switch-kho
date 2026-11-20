@@ -40,6 +40,7 @@ final class AppModel {
     private let appIndex = AppIndexCell()
     private let lock: InstanceLock
 
+    var section: SidebarSection? = .overview
     var volumes: [VolumeInfo] = []
     var kho: MountedKho?
     var khoProblem: String?
@@ -62,6 +63,10 @@ final class AppModel {
     var orphanSizes: [String: Int64] = [:]
     /// Operations with a queued or running job, so their buttons stay disabled meanwhile.
     var busyOps: Set<Int64> = []
+    var cleanupCandidates: [CleanupCandidate] = []
+    /// Bundle ID the cleanup list is narrowed to, set from the app table.
+    var cleanupFilter: String?
+    var cleanupPreviews: [String: String] = [:]
     private var staleTask: Task<Void, Never>?
     private var noticeTask: Task<Void, Never>?
     private var holdingBytesGeneration = 0

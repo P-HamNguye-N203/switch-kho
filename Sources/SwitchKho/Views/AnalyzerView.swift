@@ -9,6 +9,11 @@ struct AnalyzerView: View {
     @SceneStorage("analyzer.tab") private var tab = Tab.apps
     @State private var assigning: AppDataFolder?
     @State private var assignTo = ""
+    @State private var tableSelection: FootprintRow.ID?
+
+    private var selectedApp: InstalledApp? {
+        model.appDataMap?.footprints.first { $0.app.id == tableSelection }?.app
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -42,17 +47,19 @@ struct AnalyzerView: View {
             Button("Kiểm lại app đang chạy") { model.refreshRunning() }
                 .disabled(model.appDataMap == nil)
             Spacer()
+            Button(selectedApp.map { "Dọn cache của \($0.name)" } ?? "Dọn cache") {
+                model.showCleanup(for: selectedApp?.bundleID)
+            }
+            .help("Mở màn Dọn dẹp, lọc theo app đang chọn trong bảng")
             Group {
-                Button("Dọn cache") {}
                 Button("Cất cả app") {}
                 Button("Chạy từ Kho") {}
             }
             .disabled(true)
             .help("Có ở bản sau")
-            Text("Có ở bản sau").font(.callout).foregroundStyle(.secondary)
         }
         if let map = model.appDataMap {
-            AppFootprintTable(map: map)
+            AppFootprintTable(map: map, selection: $tableSelection)
             if map.unreadable > 0 {
                 StatusLabel("\(map.unreadable) thư mục không đọc được (cần Full Disk Access?)", systemImage: "lock.fill")
             }

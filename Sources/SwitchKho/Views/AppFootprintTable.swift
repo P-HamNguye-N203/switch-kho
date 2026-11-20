@@ -1,3 +1,4 @@
+import AppKit
 import KhoCore
 import SwiftUI
 
@@ -41,6 +42,7 @@ struct VMImageBadge: View {
 struct AppFootprintTable: View {
     @Environment(AppModel.self) private var model
     let map: AppDataMap
+    @Binding var selection: FootprintRow.ID?
     @State private var sortOrder = [KeyPathComparator(\FootprintRow.total, order: .reverse)]
 
     var rows: [FootprintRow] {
@@ -61,7 +63,7 @@ struct AppFootprintTable: View {
     }
 
     var body: some View {
-        Table(rows, children: \.children, sortOrder: $sortOrder) {
+        Table(rows, children: \.children, selection: $selection, sortOrder: $sortOrder) {
             TableColumn("Ứng dụng", value: \.name) { r in
                 Text(r.name).lineLimit(1).truncationMode(.middle).help(r.name)
             }
@@ -86,6 +88,16 @@ struct AppFootprintTable: View {
                 }
             }
             .width(min: 80, ideal: 90)
+        }
+        .contextMenu(forSelectionType: FootprintRow.ID.self) { ids in
+            if let id = ids.first, let app = map.footprints.first(where: { $0.app.id == id })?.app {
+                Button("Dọn cache của \(app.name)") { model.showCleanup(for: app.bundleID) }
+                Button("Hiện trong Finder") { NSWorkspace.shared.activateFileViewerSelecting([app.url]) }
+            } else if let id = ids.first {
+                Button("Hiện trong Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: id)])
+                }
+            }
         }
     }
 }

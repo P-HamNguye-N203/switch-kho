@@ -3,19 +3,18 @@ import SwiftUI
 
 @main
 struct SwitchKhoApp: App {
-    @State private var selection: SidebarSection? = .overview
     @State private var model = AppModel.launch()
 
     var body: some Scene {
         WindowGroup(id: "main") {
             NavigationSplitView {
-                List(SidebarSection.allCases, selection: $selection) { section in
+                List(SidebarSection.allCases, selection: $model.section) { section in
                     Label(section.title, systemImage: section.systemImage)
                         .tag(section)
                 }
                 .navigationSplitViewColumnWidth(min: 180, ideal: 200)
             } detail: {
-                detail(selection ?? .overview)
+                detail(model.section ?? .overview)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { BottomStatusArea() }
             .environment(model)
@@ -37,6 +36,7 @@ struct SwitchKhoApp: App {
         switch section {
         case .overview: DashboardView()
         case .analyzer: AnalyzerView()
+        case .cleanup: CleanupView()
         default:
             ContentUnavailableView(section.title, systemImage: section.systemImage,
                                    description: Text("Có ở bản sau"))

@@ -25,6 +25,19 @@ public enum FileOps {
         return (st.st_mode & S_IFMT) == S_IFLNK
     }
 
+    /// A real directory (a symlink to one does not count).
+    public static func isDirectory(_ url: URL) -> Bool {
+        var st = stat()
+        guard lstat(url.path, &st) == 0 else { return false }
+        return (st.st_mode & S_IFMT) == S_IFDIR
+    }
+
+    public static func sameDevice(_ a: URL, _ b: URL) -> Bool {
+        var sa = stat(), sb = stat()
+        guard lstat(a.path, &sa) == 0, lstat(b.path, &sb) == 0 else { return false }
+        return sa.st_dev == sb.st_dev
+    }
+
     public static func inode(_ url: URL) -> UInt64? {
         var st = stat()
         guard lstat(url.path, &st) == 0 else { return nil }
