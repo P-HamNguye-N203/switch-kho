@@ -12,10 +12,17 @@ CLT_CLONE="$HOME/Library/Developer/SwitchKhoCLT"
 if [ -x "$CLT_CLONE/usr/bin/swift" ]; then
     SWIFT_BIN="$CLT_CLONE/usr/bin/swift"
     CLT_ROOT="$CLT_CLONE"
-    export SDKROOT="${SDKROOT:-/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk}"
+    export SDKROOT="$CLT_CLONE/SDKs/MacOSX.sdk"
+    stamp="$(cat "$CLT_CLONE/.switchkho-clt-version" 2>/dev/null || true)"
+    current="$(pkgutil --pkg-info com.apple.pkg.CLTools_Executables 2>/dev/null | awk '/^version:/{print $2}')"
+    if [ -n "$current" ] && [ "$stamp" != "$current" ]; then
+        echo "Cảnh báo: Command Line Tools đã đổi phiên bản ($stamp → $current). Chạy lại scripts/make-local-toolchain.sh và xoá .build/." >&2
+    fi
+    echo "Toolchain: bản sao cục bộ $CLT_CLONE" >&2
 else
     SWIFT_BIN="swift"
     CLT_ROOT="/Library/Developer/CommandLineTools"
+    echo "Toolchain: swift của hệ thống" >&2
 fi
 
 TEST_FLAGS=(

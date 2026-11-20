@@ -12,4 +12,5 @@ rm -rf "$DST"
 mkdir -p "$(dirname "$DST")"
 cp -Rc "$SRC" "$DST"
 find "$DST/usr/lib/swift/pm" -maxdepth 3 -name "*.private.swiftinterface" -delete
+pkgutil --pkg-info com.apple.pkg.CLTools_Executables | awk '/^version:/{print $2}' > "$DST/.switchkho-clt-version"
 echo "Bộ công cụ cục bộ: $DST"
