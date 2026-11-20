@@ -112,6 +112,13 @@ import Testing
         #expect(try fx.ledger.partials().isEmpty)
         // Never into app or live data on the Kho.
         #expect(throws: KhoError.self) { try fx.service.copyOnly(dir, intoFolder: fx.sb.layout.live) }
+        // Never inside something an undo would delete.
+        let other = try oldFolder(fx, "held")
+        let opID = try #require(try PersonalOffload.offload([other], title: "t", leaveSymlink: false,
+                                                            service: fx.service, layout: fx.sb.layout).opID)
+        let held = try fx.khoCopy(opID)
+        #expect(throws: KhoError.self) { try fx.service.copyOnly(back, intoFolder: held) }
+        #expect(!FileOps.exists(held.appendingPathComponent(back.lastPathComponent)))
     }
 
     @Test func bringBackRefusesAnOccupiedPlace() throws {

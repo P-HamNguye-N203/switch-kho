@@ -66,8 +66,13 @@ struct MenuBarView: View {
         }
     }
 
+    /// Brings the existing window forward; opens one only when none is left.
     private func openMain() {
-        openWindow(id: "main")
+        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }) {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            openWindow(id: "main")
+        }
         NSApp.activate()
     }
 }

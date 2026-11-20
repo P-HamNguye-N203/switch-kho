@@ -487,12 +487,24 @@ public final class Ledger: @unchecked Sendable {
         if FileManager.default.fileExists(atPath: path.path), try countOperations(path) > 0 {
             throw KhoError.invalidState("Sổ cái trong máy đã có dữ liệu, không ghi đè")
         }
-        for suffix in ["", "-wal", "-shm"] {
-            try? FileManager.default.removeItem(atPath: path.path + suffix)
-        }
         try FileManager.default.createDirectory(at: path.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
-        try FileManager.default.copyItem(at: backup, to: path)
+        // Copy beside it first: a Kho pulled mid-copy must not cost the current ledger.
+        let staged = path.deletingLastPathComponent().appendingPathComponent(".\(path.lastPathComponent).restoring")
+        try? FileManager.default.removeItem(at: staged)
+        try FileManager.default.copyItem(at: backup, to: staged)
+        fullSync(staged)
+        guard integrityOK(staged) else {
+            try? FileManager.default.removeItem(at: staged)
+            throw KhoError.verifyFailed(backup.lastPathComponent)
+        }
+        for suffix in ["-wal", "-shm"] {
+            try? FileManager.default.removeItem(atPath: path.path + suffix)
+        }
+        guard rename(staged.path, path.path) == 0 else {
+            try? FileManager.default.removeItem(at: staged)
+            throw KhoError.io("Không thay được sổ cái: \(String(cString: strerror(errno)))")
+        }
         fullSync(path)
         let ledger = try Ledger(path: path)
         defer { ledger.close() }

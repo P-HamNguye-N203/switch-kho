@@ -86,14 +86,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let event = NSAppleEventManager.shared().currentAppleEvent
-        Self.launchedAtLogin = event?.eventID == kAEOpenApplication
+        let atLogin = event?.eventID == kAEOpenApplication
             && event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+        // Recorded so a real login shows whether macOS sent the signal at all.
+        Self.model?.ledger.log(action: "Khởi động", path: nil,
+                               detail: atLogin ? "mở cùng máy" : "mở bằng tay", ok: true)
+        guard atLogin else { return }
+        Self.launchedAtLogin = true
+        // The window may already be up; the view hides it when it appears later instead.
+        for window in NSApp.windows where window.identifier?.rawValue.hasPrefix("main") == true {
+            window.close()
+            Self.launchedAtLogin = false
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !Self.skipQuitWarning, let model = Self.model, !(model.liveGuard?.liveApps.isEmpty ?? true) else {
             return .terminateNow
         }
+        // Log out, restart and shut down carry a quit reason; never hold those up.
+        if NSAppleEventManager.shared().currentAppleEvent?.attributeDescriptor(forKeyword: kAEQuitReason) != nil {
+            return .terminateNow
+        }
+        NSApp.activate()
         let alert = NSAlert()
         alert.messageText = "Thoát Switch Kho?"
         alert.informativeText = "Có app đang chạy từ Kho. Khi Switch Kho không chạy, người gác không tắt các app đó nếu Kho bị rút, và chúng không đọc được dữ liệu cho tới khi Switch Kho mở lại."

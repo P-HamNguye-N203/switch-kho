@@ -276,6 +276,15 @@ public final class OffloadService: Sendable {
         if onKho(dst), let kho, FileOps.isUnder(dst, kho.layout.live) || FileOps.isUnder(dst, kho.layout.apps) {
             throw KhoError.blocked(dst.path)
         }
+        // Inside an item of an unfinished operation, an undo would delete the copy with it.
+        if onKho(dst), let kho, var rel = kho.layout.relativePath(dst) {
+            while !rel.isEmpty {
+                if let (op, _) = try ledger.item(khoRelPath: rel), !OperationState.finished.contains(op.state) {
+                    throw KhoError.invalidState("Thư mục này thuộc thao tác #\(op.id) chưa xong; hãy chép vào chỗ khác trên Kho.")
+                }
+                rel = (rel as NSString).deletingLastPathComponent
+            }
+        }
         do {
             _ = try copyTracked(from: src, to: dst, progress: progress, isCancelled: isCancelled)
             ledger.log(action: "copy", path: src.path, detail: dst.path, ok: true)

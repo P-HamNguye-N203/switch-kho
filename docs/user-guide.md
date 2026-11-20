@@ -123,4 +123,6 @@ Nhấp đúp để mở thư mục hoặc file; chuột phải để Hiện tron
 - **Dữ liệu sandbox (Containers)** mất lớp bảo vệ App Data của macOS khi nằm trong vùng chờ và trên Kho.
 - **"Hoàn tác" với app chạy từ Kho** chép bản hiện tại trên Kho về máy, không trả lại bản cũ lúc mới dời.
 - **Chứng chỉ ký**: mật khẩu keychain ký được lưu trong login keychain để build tự động. Trong lúc keychain ký đang mở (tối đa 15 phút sau khi build), một tiến trình khác cùng tài khoản có thể dùng chứng chỉ này để ký và mượn quyền của Switch Kho.
+- **Đừng tự đặt file vào thư mục của một lần cất còn trong vùng chờ** (bằng Finder). Hoàn tác lần cất đó xoá cả thư mục trên Kho, kể cả file bạn thêm vào. Nút "Chép" của Switch Kho đã chặn trường hợp này.
+- **Kéo thả** sang khung Kho cất ngay mà không hỏi lại (vẫn hoàn tác được trong vùng chờ); kéo có thể chỉ mang theo một mục, nên muốn cất nhiều mục thì chọn rồi bấm "Cất →".
 - **Phiên thử riêng** (`--data-dir`) chỉ có ở bản cài nghiệm thu `scripts/install.sh --test-sessions`; bản cài thường bỏ qua tuỳ chọn này. Cài lại bằng `scripts/install.sh` sau khi thử xong.

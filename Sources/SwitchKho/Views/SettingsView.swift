@@ -28,8 +28,11 @@ struct SettingsView: View {
                     }
                 }
                 HStack {
+                    let busy = !(model.liveGuard?.liveApps.isEmpty ?? true)
+                        || model.jobs.contains { $0.state == .running || $0.state == .queued }
                     Button("Dùng ổ này làm Kho") { confirmChange = chosen }
-                        .disabled(chosen == nil || chosen?.uuid == model.savedKhoUUID)
+                        .disabled(chosen == nil || chosen?.uuid == model.savedKhoUUID || busy)
+                        .help(busy ? "Hãy đưa các app chạy từ Kho về máy và chờ các công việc xong trước khi đổi Kho" : "")
                     Button("Khôi phục sổ cái từ Kho") { confirmRestore = chosen ?? model.khoVolume }
                         .disabled(!((chosen ?? model.khoVolume).map(model.canRestoreLedger) ?? false))
                         .help("Chỉ dùng được khi sổ cái trong máy chưa có thao tác nào và ổ có bản sao lưu")
