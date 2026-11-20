@@ -10,6 +10,15 @@ struct DashboardView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if let notice = model.guardNotice {
+                    HStack {
+                        StatusLabel(notice, systemImage: "hand.raised.fill", tint: .red)
+                        Spacer()
+                        Button("Đã hiểu") { model.guardNotice = nil }
+                    }
+                    .padding(10)
+                    .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                }
                 internalCard
                 khoCard
                 holdingCard

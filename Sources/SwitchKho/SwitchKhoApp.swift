@@ -28,6 +28,7 @@ struct SwitchKhoApp: App {
 
         MenuBarExtra("Switch Kho", systemImage: "externaldrive.fill") {
             MenuBarContent()
+                .environment(model)
         }
     }
 
@@ -38,6 +39,7 @@ struct SwitchKhoApp: App {
         case .analyzer: AnalyzerView()
         case .cleanup: CleanupView()
         case .apps: AppsView()
+        case .live: LiveView()
         default:
             ContentUnavailableView(section.title, systemImage: section.systemImage,
                                    description: Text("Có ở bản sau"))
@@ -47,8 +49,17 @@ struct SwitchKhoApp: App {
 
 private struct MenuBarContent: View {
     @Environment(\.openWindow) private var openWindow
+    @Environment(AppModel.self) private var model
 
     var body: some View {
+        if let notice = model.guardNotice {
+            Text(notice)
+            Divider()
+        }
+        if model.kho != nil {
+            Button("Tháo Kho an toàn") { model.eject() }
+            Divider()
+        }
         Button("Mở Switch Kho") {
             openWindow(id: "main")
             NSApp.activate()

@@ -55,11 +55,10 @@ struct AnalyzerView: View {
                 model.showApps(select: selectedApp?.bundleID)
             }
             .help("Mở màn Ứng dụng với app đang chọn")
-            Group {
-                Button("Chạy từ Kho") {}
+            Button(selectedApp.map { "Chạy \($0.name) từ Kho…" } ?? "Chạy từ Kho") {
+                model.showLive(select: selectedApp?.bundleID)
             }
-            .disabled(true)
-            .help("Có ở bản sau")
+            .help("Dời dữ liệu Application Support của app lên Kho, chỗ cũ là liên kết")
         }
         if let map = model.appDataMap {
             AppFootprintTable(map: map, selection: $tableSelection)

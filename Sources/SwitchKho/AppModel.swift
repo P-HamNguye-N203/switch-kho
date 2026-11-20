@@ -53,6 +53,12 @@ final class AppModel {
     var lastError: String?
     /// Short success message shown at the bottom of the window, cleared after a few seconds.
     var notice: String?
+    /// Last thing the guard did (an app stopped because the Kho went away).
+    var guardNotice: String?
+    var liveGuard: LiveGuard?
+    /// Link status of every guarded live operation, by operation ID.
+    var liveIssues: [Int64: [LiveStatus]] = [:]
+    var liveSelection: String?
     var folderScan: ScanResult?
     var folderPath: [ScanNode] = []
     var staleDays = 180 { didSet { scheduleStaleFiles() } }
@@ -174,6 +180,7 @@ final class AppModel {
         refreshVolumes()
         enqueueRecoverAndCommit()
         observeWorkspace()
+        liveGuard = LiveGuard(model: self)
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.enqueueCommitDue() }
         }
@@ -198,7 +205,10 @@ final class AppModel {
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
                      NSWorkspace.didRenameVolumeNotification, NSWorkspace.didWakeNotification] {
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.refreshVolumes() }
+                Task { @MainActor in
+                    self?.refreshVolumes()
+                    if name == NSWorkspace.didWakeNotification { self?.liveGuard?.didWake() }
+                }
             }
         }
     }
@@ -232,6 +242,7 @@ final class AppModel {
         }
         if !wasMounted && confirmed != nil { enqueueRecoverAndCommit() }
         refreshOperations()
+        liveGuard?.volumesChanged(wasMounted: wasMounted, isMounted: confirmed != nil)
     }
 
     func adopt(_ volume: VolumeInfo) {
@@ -251,14 +262,32 @@ final class AppModel {
     var ledgerIsEmpty: Bool { ((try? ledger.operationCount()) ?? 0) == 0 }
 
     func eject() {
-        guard let v = khoVolume else { return }
-        do {
-            try NSWorkspace.shared.unmountAndEjectDevice(at: v.url)
-        } catch {
-            lastError = "Không Eject được: \(error.localizedDescription)"
-        }
-        refreshVolumes()
+        Task { await guardedEject() }
     }
+
+    /// Classifies every guarded link, puts lost locks back, and records the result.
+    func checkLiveIntegrity() {
+        guard let guardian = liveGuard else { return }
+        let ops = guardian.liveOperations(), ledger = self.ledger
+        let layout = kho?.layout ?? KhoLayout(khoRoot: URL(fileURLWithPath: "/nonexistent"), linkRoot: linkRoot)
+        let mounted = kho != nil
+        Task.detached { [weak self] in
+            var out: [Int64: [LiveStatus]] = [:]
+            for op in ops {
+                let items = LiveIntegrity.items(of: op, ledger: ledger, layout: layout)
+                let statuses = LiveIntegrity.check(items: items, khoMounted: mounted)
+                for (item, status) in zip(items, statuses) where status == .ok {
+                    LiveIntegrity.relockIfNeeded(item.original)
+                }
+                out[op.id] = statuses
+                let bad = statuses.filter { $0 != .ok && $0 != .khoMissing }
+                if !bad.isEmpty { ledger.log(action: "Liên kết Kho có vấn đề", path: op.title, detail: "\(bad)", ok: false) }
+            }
+            await self?.setLiveIssues(out)
+        }
+    }
+
+    func setLiveIssues(_ issues: [Int64: [LiveStatus]]) { liveIssues = issues }
 
     // MARK: Jobs
 
