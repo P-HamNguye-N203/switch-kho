@@ -16,6 +16,7 @@ public enum CleanupExecutor {
         freeSpace: @Sendable () -> Int64 = { VolumeService.info(for: URL(fileURLWithPath: "/"))?.availableForImportant ?? 0 }
     ) async throws -> CleanupOutcome {
         try await checkRequirement(c.requirement, isRunning: isRunning)
+        var removedBytes: Int64? = nil
         let before = freeSpace()
         var removed: [URL] = []
         var failed: [(URL, String)] = []
@@ -35,12 +36,14 @@ public enum CleanupExecutor {
             for url in urls {
                 // App state can change while earlier items are deleted.
                 try await checkRequirement(c.requirement, isRunning: isRunning)
+                let size = DirectoryScanner.size(of: url)
                 do {
                     switch deletion {
                     case .permanent: try FileOps.removeTree(url)
                     case .trash: try trash(url)
                     }
                     removed.append(url)
+                    removedBytes = (removedBytes ?? 0) + size
                 } catch {
                     failed.append((url, error.localizedDescription))
                 }
@@ -55,7 +58,7 @@ public enum CleanupExecutor {
             if c.id == "docker-prune" { reported = reclaimedBytes(result.output) }
         }
 
-        let freed = reported ?? max(0, freeSpace() - before)
+        let freed = reported ?? removedBytes ?? max(0, freeSpace() - before)
         ledger.log(action: "cleanup", path: c.id,
                    detail: "\(ByteFormat.string(freed)); \(removed.count) mục; \(failed.count) lỗi", ok: failed.isEmpty)
         return CleanupOutcome(freedBytes: freed, removed: removed, failed: failed, commandOutput: output)

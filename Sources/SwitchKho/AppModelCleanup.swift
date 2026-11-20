@@ -71,28 +71,59 @@ extension AppModel {
         }
     }
 
-    func runCleanup(_ c: CleanupCandidate) {
+    /// Runs every chosen group as one job and reports a single summary; groups that failed,
+    /// fully or partly, stay in the list.
+    func runCleanup(_ items: [CleanupCandidate]) {
+        let items = items.filter { !cleanupRunning.contains($0.id) }
+        guard !items.isEmpty else { return }
         let ledger = self.ledger, policy = self.policy
+        cleanupRunning.formUnion(items.map(\.id))
+        let title = items.count == 1 ? "Dọn: \(items[0].title)" : "Dọn \(items.count) nhóm"
         Task {
-            do {
-                let outcome = try await jobQueue.run(title: "Dọn: \(c.title)") { _ in
-                    try await CleanupExecutor.execute(
-                        c, policy: policy, ledger: ledger,
-                        isRunning: { url in
-                            let id = Bundle(url: url)?.bundleIdentifier ?? ""
-                            return RunningProcesses.isRunning(bundleID: id, appURL: url)
-                        })
+            let results: [(CleanupCandidate, Result<CleanupOutcome, any Error>)] = (try? await jobQueue.run(title: title) { ctx in
+                var out: [(CleanupCandidate, Result<CleanupOutcome, any Error>)] = []
+                for (i, c) in items.enumerated() {
+                    if ctx.isCancelled { break }
+                    ctx.report(fraction: Double(i) / Double(items.count), detail: c.title)
+                    do {
+                        out.append((c, .success(try await CleanupExecutor.execute(
+                            c, policy: policy, ledger: ledger,
+                            isRunning: { url in
+                                let id = Bundle(url: url)?.bundleIdentifier ?? ""
+                                return RunningProcesses.isRunning(bundleID: id, appURL: url)
+                            }))))
+                    } catch {
+                        out.append((c, .failure(error)))
+                    }
                 }
-                var message = "Đã giải phóng \(ByteFormat.string(outcome.freedBytes)) (\(c.title))"
-                if c.id == "docker-prune" { message += ". Docker.raw sẽ co lại sau vài phút" }
-                if !outcome.failed.isEmpty {
-                    lastError = "\(c.title): \(outcome.failed.count) mục không xoá được, ví dụ \(outcome.failed[0].0.lastPathComponent): \(outcome.failed[0].1)"
+                return out
+            }) ?? []
+            var freed: Int64 = 0
+            var problems: [String] = []
+            var docker = false
+            for (c, result) in results {
+                switch result {
+                case .success(let o):
+                    freed += o.freedBytes
+                    if c.id == "docker-prune" { docker = true }
+                    if o.failed.isEmpty {
+                        cleanupCandidates.removeAll { $0.id == c.id }
+                    } else {
+                        problems.append("\(c.title): \(o.failed.count) mục không xoá được (ví dụ \(o.failed[0].0.lastPathComponent): \(o.failed[0].1))")
+                    }
+                case .failure(let e):
+                    problems.append("\(c.title): \(e.localizedDescription)")
                 }
-                notify(message)
-                cleanupCandidates.removeAll { $0.id == c.id }
-            } catch {
-                lastError = "Dọn \(c.title): \(error.localizedDescription)"
             }
+            cleanupRunning.subtract(items.map(\.id))
+            if results.contains(where: { if case .success = $0.1 { true } else { false } }) {
+                notify("Đã giải phóng \(ByteFormat.string(freed))" + (docker ? ". Docker.raw sẽ co lại sau vài phút" : ""))
+            }
+            if !problems.isEmpty {
+                lastError = problems.count == 1 ? problems[0]
+                    : "\(problems.count) nhóm gặp lỗi:\n" + problems.joined(separator: "\n")
+            }
+            if results.count < items.count && problems.isEmpty { lastError = "Đã dừng giữa chừng" }
         }
     }
 }

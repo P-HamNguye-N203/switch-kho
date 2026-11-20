@@ -84,7 +84,11 @@ struct CleanupView: View {
                 if case .command(_, _, .some) = c.method {
                     Button("Xem trước") { model.previewCleanup(c) }
                 }
-                Button("Dọn") { confirm = [c] }
+                if model.cleanupRunning.contains(c.id) {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button("Dọn") { confirm = [c] }
+                }
             }
             HStack(spacing: 12) {
                 if let req = model.requirementText(c.requirement) {
@@ -153,7 +157,7 @@ struct CleanupView: View {
                 Spacer()
                 Button("Thôi") { confirm = nil }.keyboardShortcut(.cancelAction)
                 Button("Dọn", role: .destructive) {
-                    for c in items { model.runCleanup(c) }
+                    model.runCleanup(items)
                     selected.subtract(items.map(\.id))
                     confirm = nil
                 }
