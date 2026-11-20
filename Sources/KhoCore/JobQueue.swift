@@ -91,7 +91,7 @@ public actor JobQueue {
         if Self.insideJob { throw KhoError.invalidState("Gọi lồng trong hàng đợi") }
         return try await withCheckedThrowingContinuation { (c: CheckedContinuation<T, Error>) in
             let once = OnceResume(c)
-            add(title: title, cancellable: cancellable, work: { ctx in
+            _ = add(title: title, cancellable: cancellable, work: { ctx in
                 do {
                     once.resume(.success(try await work(ctx)))
                 } catch {
@@ -193,7 +193,7 @@ public actor JobQueue {
                 outcome = (error is CancellationError || ctx.isCancelled)
                     ? .cancelled : .failed(error.localizedDescription)
             }
-            await self.finish(record.id, outcome)
+            self.finish(record.id, outcome)
         }
     }
 

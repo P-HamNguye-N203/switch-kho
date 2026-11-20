@@ -13,7 +13,10 @@ public enum OperationState: String, Sendable, Codable, CaseIterable {
 public enum ItemRole: String, Sendable, Codable { case normal, setAside }
 public enum ItemStage: String, Sendable, Codable { case copied, swapped }
 
-public struct Operation: Sendable, Equatable {
+/// Name that does not collide with `Foundation.Operation` in app code.
+public typealias LedgerOperation = Operation
+
+public struct Operation: Sendable, Hashable {
     public let id: Int64
     public let uid: String
     public let kind: OperationKind
@@ -28,7 +31,7 @@ public struct Operation: Sendable, Equatable {
     public let needsReview: Bool
 }
 
-public struct OperationItem: Sendable, Equatable {
+public struct OperationItem: Sendable, Hashable {
     public let id: Int64
     public let opID: Int64
     public let idx: Int
