@@ -143,12 +143,6 @@ public enum AppArchiver {
 
     public static let appManagementHint = "macOS chặn dời \"app\". Hãy cấp quyền cho Switch Kho ở Cài đặt hệ thống › Quyền riêng tư & Bảo mật › Quản lý ứng dụng, rồi thoát và mở lại Switch Kho."
 
-    /// Original places that something else (for example a reinstalled app) occupies now.
-    static func occupiedOriginals(_ items: [OperationItem]) -> [String] {
-        items.filter { !$0.restored && !$0.released && $0.role == .normal && FileOps.exists($0.originalURL) }
-            .map(\.originalPath)
-    }
-
     /// Undo while holding, pull back from the Kho once committed. Then re-registers the app
     /// with Launch Services and compares its signature with the check made before archiving.
     public static func restore(
@@ -162,7 +156,7 @@ public enum AppArchiver {
         // Refuse up front instead of bringing the app back beside a reinstalled copy: bundle in
         // one place and data in another would be worse than not restoring.
         if op.state == .holding || op.state == .committed {
-            let occupied = occupiedOriginals(try ledger.items(opID))
+            let occupied = service.occupiedOriginals(try ledger.items(opID))
             if !occupied.isEmpty {
                 throw KhoError.destinationOccupied(occupied.joined(separator: "\n")
                     + "\nHãy xoá hoặc đổi tên bản đang nằm ở đó (ví dụ app vừa cài lại) rồi thử lại.")

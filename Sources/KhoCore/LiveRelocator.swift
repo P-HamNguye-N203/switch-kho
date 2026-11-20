@@ -71,13 +71,9 @@ public enum LiveRelocator {
         }
         // A real folder where our link should be is data made while the Kho was away; it has to
         // be kept (set aside) first or it would be lost or mixed in.
-        let replaced = try ledger.items(opID).filter { item in
-            item.role == .normal && !item.restored && !item.released && item.stage != .swapped
-                && FileOps.exists(item.originalURL)
-                && !(FileOps.isSymlink(item.originalURL) && isOurLink(item.originalURL, service))
-        }
+        let replaced = service.occupiedOriginals(try ledger.items(opID))
         if !replaced.isEmpty {
-            throw KhoError.destinationOccupied(replaced.map(\.originalPath).joined(separator: "\n")
+            throw KhoError.destinationOccupied(replaced.joined(separator: "\n")
                 + "\nĐã có thư mục thật ở chỗ liên kết — hãy bấm \"Giữ bản trên Kho\" trước.")
         }
         switch op.state {
@@ -85,10 +81,5 @@ public enum LiveRelocator {
         case .committed, .restoring: try service.restore(opID: opID, progress: progress, isCancelled: isCancelled)
         default: throw KhoError.invalidState("Thao tác không ở vùng chờ hay trên Kho")
         }
-    }
-
-    static func isOurLink(_ url: URL, _ service: OffloadService) -> Bool {
-        guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path) else { return false }
-        return service.isOurLinkTarget(target)
     }
 }

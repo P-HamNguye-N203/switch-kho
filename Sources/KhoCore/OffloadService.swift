@@ -762,6 +762,19 @@ public final class OffloadService: Sendable {
 
     /// Keeps a folder an app created while the Kho was away: copies it to the Kho first,
     /// then moves it into holding and puts the live operation's symlink back.
+    /// Original places of items not yet back where something other than our own link sits now
+    /// (a reinstalled app, a new folder made meanwhile).
+    public func occupiedOriginals(_ items: [OperationItem]) -> [String] {
+        items.filter { item in
+            guard item.role == .normal, !item.restored, !item.released, item.stage != .swapped,
+                  FileOps.exists(item.originalURL) else { return false }
+            if FileOps.isSymlink(item.originalURL),
+               let target = try? FileManager.default.destinationOfSymbolicLink(atPath: item.originalPath),
+               isOurLinkTarget(target) { return false }
+            return true
+        }.map(\.originalPath)
+    }
+
     /// Recreates a missing link of a live operation. The only other place links are made is
     /// the offload itself.
     public func relink(opID: Int64, itemID: Int64) throws {

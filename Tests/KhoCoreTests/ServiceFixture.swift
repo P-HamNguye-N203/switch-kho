@@ -28,7 +28,7 @@ final class ServiceFixture: Sendable {
 
     var kho: MountedKho { MountedKho(uuid: Self.khoUUID, layout: sb.layout) }
 
-    init() throws {
+    init(onKhoChanged: (@Sendable ([String], [String]) -> Void)? = nil) throws {
         sb = try TestSandbox()
         ledger = try Ledger(path: sb.dbPath)
         let corrupt = self.corrupt
@@ -55,7 +55,7 @@ final class ServiceFixture: Sendable {
             ledger: ledger, holding: holding, policy: sb.policy, copier: copier, linkRoot: sb.khoLink,
             mountedKho: { mounted.withLock { $0 } ? kho : nil },
             holdDays: { 7 }, now: { clock.withLock { $0 } },
-            appRunning: { _ in running.withLock { $0 } })
+            appRunning: { _ in running.withLock { $0 } }, onKhoChanged: onKhoChanged)
     }
 
     func cleanup() { sb.cleanup() }
