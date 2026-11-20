@@ -166,7 +166,11 @@ public final class VerifiedCopier: Sendable {
         let (segments, digest) = try ContentDigest.segmentsAndDigest(entry.src)
         let copyDigest = try ContentDigest.digest(target, segments: segments)
         let name = entry.rel.isEmpty ? entry.src.lastPathComponent : entry.rel
-        guard copyDigest == digest else { throw KhoError.verifyFailed(name) }
+        guard copyDigest == digest else {
+            // A source written to while it was being copied is reported as such, not as a bad copy.
+            if SourceStamp.of(entry.src) != entry.stamp { throw KhoError.sourceChanged(name) }
+            throw KhoError.verifyFailed(name)
+        }
         let srcAllocated = try SparseFile.allocatedBytes(entry.src)
         if !SparseFile.isCompressed(entry.src) {
             let dstAllocated = try SparseFile.allocatedBytes(target)
