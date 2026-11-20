@@ -4,3 +4,13 @@ build/
 *.pem
 .DS_Store
 .swiftpm/
+
+# Local working notes and agent state stay on this machine
+plans/
+.claude/
+
+# Editors
+.vscode/
+.idea/
+*.xcuserstate
+xcuserdata/
