@@ -43,17 +43,26 @@ public enum RuleEngine {
         return out.sorted { $0.usage.date < $1.usage.date }
     }
 
-    /// A folder counts as used when anything inside it was (at most 50 000 entries).
+    /// A folder counts as used when anything inside it was. A folder too big to walk fully
+    /// (over 50 000 entries) or holding another volume gives nil: never offered, since the
+    /// part not seen might be in use.
     static func newestUsage(_ dir: URL, usageDate: (URL) -> UsageDate?) -> UsageDate? {
+        var rootSt = stat()
+        guard lstat(dir.path, &rootSt) == 0 else { return nil }
         var newest = usageDate(dir)
         var stack = [dir], seen = 0
-        while let current = stack.popLast(), seen < maxEntries {
+        while let current = stack.popLast() {
             for name in (try? FileManager.default.contentsOfDirectory(atPath: current.path)) ?? [] {
                 seen += 1
+                if seen > maxEntries { return nil }
                 let child = current.appendingPathComponent(name)
-                if let u = usageDate(child), u.date > (newest?.date ?? .distantPast) { newest = u }
                 var st = stat()
-                if lstat(child.path, &st) == 0, st.st_mode & S_IFMT == S_IFDIR { stack.append(child) }
+                guard lstat(child.path, &st) == 0 else { continue }
+                if st.st_mode & S_IFMT == S_IFDIR {
+                    if st.st_dev != rootSt.st_dev { return nil }
+                    stack.append(child)
+                }
+                if let u = usageDate(child), u.date > (newest?.date ?? .distantPast) { newest = u }
             }
         }
         return newest

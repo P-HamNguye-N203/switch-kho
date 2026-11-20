@@ -57,7 +57,9 @@ public enum PersonalOffload {
         guard let op = try ledger.operation(opID), op.kind == .personal else {
             throw KhoError.notFound("Thao tác #\(opID)")
         }
-        let occupied = service.occupiedOriginals(try ledger.items(opID))
+        // Only before anything moved back; a resumed undo or restore finds its own items there.
+        let occupied = op.state == .holding || op.state == .committed
+            ? service.occupiedOriginals(try ledger.items(opID)) : []
         if !occupied.isEmpty {
             throw KhoError.destinationOccupied(occupied.joined(separator: "\n")
                 + "\nĐã có dữ liệu mới ở chỗ cũ — hãy đổi tên hoặc dời nó đi rồi thử lại.")

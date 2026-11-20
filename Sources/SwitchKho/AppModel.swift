@@ -38,7 +38,7 @@ final class AppModel {
     /// Searchable index of the Kho, in its own database next to the ledger.
     let catalog: CatalogStore
     let linkRoot: URL
-    private let khoCell = KhoCell()
+    let khoCell = KhoCell()
     private let appIndex = AppIndexCell()
     private let lock: InstanceLock
 
@@ -180,7 +180,7 @@ final class AppModel {
         linkRoot = dataDir.appendingPathComponent("KhoLink")
         let khoCell = self.khoCell, appIndex = self.appIndex, ledger = self.ledger
         // Opened before the service, which reports every change on the Kho to it.
-        catalog = try CatalogStore(path: dataDir.appendingPathComponent("catalog.sqlite"))
+        catalog = try Self.openCatalog(dataDir.appendingPathComponent("catalog.sqlite"))
         let catalogHook = CatalogSync.makeHook(
             store: catalog, queue: jobQueue,
             khoUUID: { khoCell.value.withLock { $0?.uuid } },

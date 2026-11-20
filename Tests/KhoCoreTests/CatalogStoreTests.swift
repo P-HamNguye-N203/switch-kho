@@ -56,6 +56,20 @@ import Testing
         }
         try store.upsert(volumeUUID: "K", items: [item("Sau/moi-them.txt")])
         #expect(try store.search("moi").count == 1)
+        // A partial load never passes for a fresh catalog.
+        #expect(try store.indexedVolume(uuid: "K") == nil)
+    }
+
+    @Test func cancelledReindexDropsTheFreshMark() throws {
+        let sb = try TestSandbox()
+        defer { sb.cleanup() }
+        let store = try CatalogStore(path: sb.root.appendingPathComponent("db/catalog.sqlite"))
+        try store.replaceCatalog(volumeUUID: "K", volumeName: "Kho", items: [item("a.txt")])
+        #expect(try store.indexedVolume(uuid: "K") != nil)
+        #expect(throws: CancellationError.self) {
+            try store.replaceCatalog(volumeUUID: "K", volumeName: "Kho", items: [item("b.txt")], isCancelled: { true })
+        }
+        #expect(try store.indexedVolume(uuid: "K") == nil)
     }
 
     @Test func catalogLivesApartFromTheLedger() throws {
@@ -90,5 +104,31 @@ import Testing
         #expect(!items.contains { $0.relPath.hasPrefix("/") || $0.name == ".DS_Store" || $0.relPath.contains("partial") })
         let sub = CatalogIndexer.scanSubtree(root: root.appendingPathComponent("d0"), khoRoot: root)
         #expect(sub.count == 10)
+    }
+
+    @Test func vanishedKhoThrowsInsteadOfLookingEmpty() throws {
+        let sb = try TestSandbox()
+        defer { sb.cleanup() }
+        let store = try CatalogStore(path: sb.root.appendingPathComponent("db/catalog.sqlite"))
+        let old = CatalogItem(relPath: "a.txt", name: "a.txt", size: 1, isDirectory: false, modified: nil)
+        try store.replaceCatalog(volumeUUID: "K", volumeName: "Kho", items: [old])
+        #expect(throws: KhoError.khoOffline) {
+            let items = try CatalogIndexer.scan(khoRoot: sb.root.appendingPathComponent("gone"))
+            try store.replaceCatalog(volumeUUID: "K", volumeName: "Kho", items: items)
+        }
+        #expect(try store.count(volumeUUID: "K") == 1)
+        #expect(try store.indexedVolume(uuid: "K") != nil)
+    }
+
+    @Test func liveDataIsNeverIndexed() throws {
+        let sb = try TestSandbox()
+        defer { sb.cleanup() }
+        let root = sb.root.appendingPathComponent("idx")
+        try sb.makeFile(root.appendingPathComponent("SwitchKho/Live/app/x.db"), bytes: 10, seed: 1)
+        try sb.makeFile(root.appendingPathComponent("SwitchKho/Archive/y.txt"), bytes: 10, seed: 1)
+        let items = try CatalogIndexer.scan(khoRoot: root)
+        #expect(!items.contains { $0.relPath.hasPrefix("SwitchKho/Live") })
+        #expect(items.contains { $0.relPath == "SwitchKho/Archive/y.txt" })
+        #expect(CatalogIndexer.scanSubtree(root: root.appendingPathComponent("SwitchKho/Live/app"), khoRoot: root).isEmpty)
     }
 }

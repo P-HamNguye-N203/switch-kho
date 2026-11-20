@@ -4,19 +4,34 @@ import KhoCore
 extension AppModel {
     // MARK: Catalog
 
+    /// A catalog that cannot be opened is only an index: start a fresh one instead of
+    /// refusing to launch.
+    static func openCatalog(_ url: URL) throws -> CatalogStore {
+        do { return try CatalogStore(path: url) } catch {
+            for suffix in ["", "-wal", "-shm"] {
+                try? FileManager.default.removeItem(atPath: url.path + suffix)
+            }
+            return try CatalogStore(path: url)
+        }
+    }
+
     /// Indexes the mounted Kho when it was never indexed or the index is over a day old.
     func indexKhoIfStale(force: Bool = false) {
         guard let kho, let volume = khoVolume else { return }
         if !force, let v = try? catalog.indexedVolume(uuid: kho.uuid),
            Date().timeIntervalSince(v.lastIndexed) < 86_400 { return }
-        let store = catalog, root = kho.layout.khoRoot, uuid = kho.uuid, name = volume.name
+        let store = catalog, uuid = kho.uuid, name = volume.name, cell = khoCell
         Task {
             await jobQueue.enqueue(title: "Lập chỉ mục Kho", cancellable: true) { [weak self] ctx in
+                // The job may start long after it was queued (for example after an eject):
+                // index only the same Kho, and only while it is still there.
+                guard let current = cell.value.withLock({ $0 }), current.uuid == uuid,
+                      FileOps.exists(current.layout.identityFile) else { return }
                 let start = Date()
-                let items = try CatalogIndexer.scan(khoRoot: root, progress: { n in ctx.report(fraction: 0, detail: "\(n) mục") },
+                let items = try CatalogIndexer.scan(khoRoot: current.layout.khoRoot,
+                                                    progress: { n in ctx.report(fraction: 0, detail: "\(n) mục") },
                                                     isCancelled: { ctx.isCancelled })
-                    // App data running from the Kho changes constantly and is not something to search.
-                    .filter { !$0.relPath.hasPrefix("SwitchKho/Live/") && $0.relPath != "SwitchKho/Live" }
+                guard FileOps.exists(current.layout.identityFile) else { throw KhoError.khoOffline }
                 ctx.report(fraction: 0.9, detail: "Ghi \(items.count) mục")
                 try store.replaceCatalog(volumeUUID: uuid, volumeName: name, items: items, isCancelled: { ctx.isCancelled })
                 let seconds = Int(Date().timeIntervalSince(start))
@@ -30,8 +45,18 @@ extension AppModel {
         catalogGeneration += 1
     }
 
-    func catalogSearch(_ text: String) -> [CatalogEntry] {
-        (try? catalog.search(text, limit: 500)) ?? []
+    /// Off the main thread: one-letter prefixes over a large Kho take about a second.
+    func catalogSearch(_ text: String) async -> [CatalogEntry] {
+        guard text.trimmingCharacters(in: .whitespaces).count >= 2 else { return [] }
+        let store = catalog
+        return await Task.detached { (try? store.search(text, limit: 500)) ?? [] }.value
+    }
+
+    /// What the footer shows; read off the main thread because a reindex holds the database.
+    func catalogStatus() async -> (volume: IndexedVolume?, rows: Int64) {
+        guard let uuid = kho?.uuid else { return (nil, 0) }
+        let store = catalog
+        return await Task.detached { ((try? store.indexedVolume(uuid: uuid)) ?? nil, (try? store.count(volumeUUID: uuid)) ?? 0) }.value
     }
 
     /// The archive operation that owns a catalog entry, if it is a personal item we can bring back.
@@ -118,14 +143,17 @@ extension AppModel {
     /// the queue, and the job can be cancelled safely while copying.
     func enqueueAutoRules() {
         let rules = self.rules.filter { $0.enabled && $0.mode == .auto }
-        guard !rules.isEmpty, let kho else { return }
-        let service = offloadService, ledger = self.ledger, policy = self.policy, layout = kho.layout
+        guard !rules.isEmpty, kho != nil else { return }
+        let service = offloadService, ledger = self.ledger, policy = self.policy, cell = khoCell
         Task {
             await jobQueue.enqueue(title: "Chạy quy tắc tự động", cancellable: true) { [weak self] ctx in
-                let out = RuleEngine.runAuto(rules: rules, khoMounted: true, service: service, ledger: ledger,
-                                             policy: policy, layout: layout, isCancelled: { ctx.isCancelled })
+                // Decided when the job runs, not when it was queued.
+                let current = cell.value.withLock { $0 }
+                let mounted = current.map { FileOps.exists($0.layout.identityFile) } ?? false
+                let out = RuleEngine.runAuto(rules: rules, khoMounted: mounted, service: service, ledger: ledger,
+                                             policy: policy, layout: current?.layout, isCancelled: { ctx.isCancelled })
                 let failed = out.compactMap { r -> String? in
-                    if case .failure(let e) = r.result { return "\(r.rule): \(e.localizedDescription)" }
+                    if case .failure(let e) = r.result, !(e is CancellationError) { return "\(r.rule): \(e.localizedDescription)" }
                     return nil
                 }
                 await self?.rulesRan(count: out.count, failures: failed)

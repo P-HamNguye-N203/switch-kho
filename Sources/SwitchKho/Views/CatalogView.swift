@@ -10,6 +10,7 @@ struct CatalogView: View {
     @State private var results: [CatalogEntry] = []
     @State private var selection: Set<CatalogEntry.ID> = []
     @State private var confirmBack: LedgerOperation?
+    @State private var status: (volume: IndexedVolume?, rows: Int64) = (nil, 0)
 
     enum Mode: String, CaseIterable { case search = "Tìm trong kho", archived = "Đã cất" }
 
@@ -48,10 +49,12 @@ struct CatalogView: View {
                 .task(id: query) {
                     try? await Task.sleep(for: .milliseconds(200))
                     guard !Task.isCancelled else { return }
-                    results = model.catalogSearch(query)
+                    let found = await model.catalogSearch(query)
+                    guard !Task.isCancelled else { return }
+                    results = found
                 }
-            if query.trimmingCharacters(in: .whitespaces).isEmpty {
-                ContentUnavailableView("Gõ để tìm", systemImage: "magnifyingglass",
+            if query.trimmingCharacters(in: .whitespaces).count < 2 {
+                ContentUnavailableView("Gõ ít nhất 2 ký tự để tìm", systemImage: "magnifyingglass",
                                        description: Text("Danh mục vẫn tìm được khi Kho đã rút."))
             } else if results.isEmpty {
                 ContentUnavailableView.search(text: query)
@@ -107,12 +110,13 @@ struct CatalogView: View {
 
     private var footer: some View {
         HStack {
-            let _ = model.catalogGeneration
-            if let kho = model.kho, let v = try? model.catalog.indexedVolume(uuid: kho.uuid) {
+            if let v = status.volume {
                 Text("Lập chỉ mục lúc \(v.lastIndexed.formatted(date: .abbreviated, time: .shortened)) · \(v.files) file · \(ByteFormat.string(v.bytes))")
                     .monospacedDigit()
             } else if model.kho == nil {
                 Text("Kho chưa cắm — kết quả lấy từ lần lập chỉ mục trước.")
+            } else if status.rows > 0 {
+                Text("Danh mục chưa đầy đủ — lần lập chỉ mục trước bị dừng giữa chừng.")
             } else {
                 Text("Kho chưa được lập chỉ mục.")
             }
@@ -122,6 +126,9 @@ struct CatalogView: View {
         }
         .font(.callout)
         .foregroundStyle(.secondary)
+        .task(id: "\(model.catalogGeneration)-\(model.kho?.uuid ?? "")-\(model.jobs.count)") {
+            status = await model.catalogStatus()
+        }
     }
 
     // MARK: Archived

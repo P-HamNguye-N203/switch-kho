@@ -10,13 +10,13 @@ public enum CatalogSync {
             guard !added.isEmpty || !removed.isEmpty else { return }
             Task {
                 await queue.enqueue(title: "Cập nhật danh mục") { _ in
-                    guard let uuid = khoUUID() else { return }
-                    for rel in removed { try store.remove(volumeUUID: uuid, relPathPrefix: rel) }
-                    if let root = khoRoot() {
-                        for rel in added {
-                            let items = CatalogIndexer.scanSubtree(root: root.appendingPathComponent(rel), khoRoot: root)
-                            try store.upsert(volumeUUID: uuid, items: items)
-                        }
+                    guard let uuid = khoUUID(), let root = khoRoot() else { return }
+                    // Re-read what is on disk now for every touched path, so the order of
+                    // quick successive changes does not matter.
+                    for rel in Set(added + removed) {
+                        try store.remove(volumeUUID: uuid, relPathPrefix: rel)
+                        let items = CatalogIndexer.scanSubtree(root: root.appendingPathComponent(rel), khoRoot: root)
+                        if !items.isEmpty { try store.upsert(volumeUUID: uuid, items: items) }
                     }
                 }
             }

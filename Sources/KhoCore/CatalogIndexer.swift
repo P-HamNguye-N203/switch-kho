@@ -6,13 +6,23 @@ public enum CatalogIndexer {
     static let skipped: Set<String> = [".Spotlight-V100", ".fseventsd", ".Trashes", ".DocumentRevisions-V100",
                                        ".TemporaryItems", ".DS_Store"]
 
+    /// App data running from the Kho changes constantly and is not something to search.
+    static let excludedRel = "SwitchKho/Live"
+
+    static func isExcluded(_ rel: String) -> Bool { rel == excludedRel || rel.hasPrefix(excludedRel + "/") }
+
     static func isSkipped(_ name: String) -> Bool {
         skipped.contains(name) || name.hasPrefix(".switchkho-partial-") || name.hasPrefix(".ledger-backup.tmp-")
     }
 
-    /// The whole volume. Stays on the volume's own device and never follows symlinks.
+    /// The whole volume. Stays on the volume's own device and never follows symlinks. Throws
+    /// `khoOffline` when the root cannot be read, so a vanished Kho never looks empty.
     public static func scan(khoRoot: URL, progress: @Sendable (Int) -> Void = { _ in },
                             isCancelled: @Sendable () -> Bool = { false }) throws -> [CatalogItem] {
+        var st = stat()
+        guard lstat(khoRoot.path, &st) == 0,
+              (try? FileManager.default.contentsOfDirectory(atPath: khoRoot.path)) != nil
+        else { throw KhoError.khoOffline }
         var out: [CatalogItem] = []
         try walk(khoRoot, khoRoot: khoRoot, into: &out, progress: progress, isCancelled: isCancelled)
         return out
@@ -21,7 +31,8 @@ public enum CatalogIndexer {
     /// `root` itself and everything below it, for updates after an offload.
     public static func scanSubtree(root: URL, khoRoot: URL) -> [CatalogItem] {
         var out: [CatalogItem] = []
-        if let item = item(root, khoRoot: khoRoot) { out.append(item) }
+        guard let item = item(root, khoRoot: khoRoot), !isExcluded(item.relPath) else { return [] }
+        out.append(item)
         var st = stat()
         if lstat(root.path, &st) == 0, st.st_mode & S_IFMT == S_IFDIR {
             try? walk(root, khoRoot: khoRoot, into: &out, progress: { _ in }, isCancelled: { false })
@@ -56,7 +67,7 @@ public enum CatalogIndexer {
                 guard lstat(url.path, &st) == 0 else { continue }
                 let kind = st.st_mode & S_IFMT
                 if kind == S_IFDIR && st.st_dev != rootSt.st_dev { continue }
-                guard let row = item(url, khoRoot: khoRoot) else { continue }
+                guard let row = item(url, khoRoot: khoRoot), !isExcluded(row.relPath) else { continue }
                 out.append(row)
                 if kind == S_IFDIR { stack.append(url) }
                 if out.count % 10_000 == 0 { progress(out.count) }

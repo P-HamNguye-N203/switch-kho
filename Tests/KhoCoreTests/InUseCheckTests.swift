@@ -24,6 +24,16 @@ import Testing
         #expect(InUseCheck.reason(idle, now: now) == nil)
     }
 
+    @Test func hungOrMissingToolCountsAsUnknown() throws {
+        let file = URL(fileURLWithPath: "/etc/hosts")
+        let start = Date()
+        #expect(InUseCheck.openCheck(file, tool: URL(fileURLWithPath: "/bin/sleep"), arguments: ["30"], timeout: 1) == .unknown)
+        #expect(Date().timeIntervalSince(start) < 3)
+        #expect(InUseCheck.openCheck(file, tool: URL(fileURLWithPath: "/nonexistent/lsof")) == .unknown)
+        #expect(InUseCheck.openCheck(file, tool: URL(fileURLWithPath: "/usr/bin/true"), arguments: []) == .closed)
+        #expect(InUseCheck.openCheck(file, tool: URL(fileURLWithPath: "/bin/echo"), arguments: ["123"]) == .open)
+    }
+
     @Test func folderCountsItsNewestChild() throws {
         let sb = try TestSandbox()
         defer { sb.cleanup() }

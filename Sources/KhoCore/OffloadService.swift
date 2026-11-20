@@ -760,8 +760,6 @@ public final class OffloadService: Sendable {
         return f.string(from: date)
     }
 
-    /// Keeps a folder an app created while the Kho was away: copies it to the Kho first,
-    /// then moves it into holding and puts the live operation's symlink back.
     /// Original places of items not yet back where something other than our own link sits now
     /// (a reinstalled app, a new folder made meanwhile).
     public func occupiedOriginals(_ items: [OperationItem]) -> [String] {
@@ -796,6 +794,8 @@ public final class OffloadService: Sendable {
         ledger.log(action: "Tạo lại liên kết", path: item.originalPath, detail: nil, ok: true)
     }
 
+    /// Keeps a folder an app created while the Kho was away: copies it to the Kho first,
+    /// then moves it into holding and puts the live operation's symlink back.
     public func setAside(liveOpID: Int64, folder original: URL,
                          progress: @escaping @Sendable (CopyProgress) -> Void = { _ in },
                          isCancelled: @escaping @Sendable () -> Bool = { false }) throws -> Int64 {

@@ -53,17 +53,12 @@ public final class CatalogStore: @unchecked Sendable {
         """
 
     public init(path: URL) throws {
-        let existed = FileManager.default.fileExists(atPath: path.path)
         db = try SQLiteDatabase(path: path.path)
         // An index can be rebuilt: trade a little durability for speed.
         try db.execute("PRAGMA synchronous=NORMAL; PRAGMA fullfsync=OFF; PRAGMA checkpoint_fullfsync=OFF;")
         let version = try db.scalarInt("PRAGMA user_version") ?? 0
+        // Version 1 is the first schema; a later migration backs up with VACUUM INTO first.
         if version < 1 {
-            if existed && version > 0 {
-                let bak = path.appendingPathExtension("bak")
-                try? FileManager.default.removeItem(at: bak)
-                _ = try db.run("VACUUM INTO ?", [.text(bak.path)])
-            }
             try db.transaction {
                 try db.execute("""
                     CREATE TABLE IF NOT EXISTS catalog(
@@ -103,7 +98,12 @@ public final class CatalogStore: @unchecked Sendable {
             try? db.execute("INSERT INTO catalog_fts(catalog_fts) VALUES('rebuild');")
             try? db.execute(Self.triggers)
         }
-        _ = try db.runChanges("DELETE FROM catalog WHERE volume_uuid=?", [.text(volumeUUID)])
+        // The volume stays unmarked until the whole load is done, so a cancelled or failed
+        // load never passes for a fresh catalog.
+        try db.transaction {
+            _ = try db.runChanges("DELETE FROM volumes WHERE uuid=?", [.text(volumeUUID)])
+            _ = try db.runChanges("DELETE FROM catalog WHERE volume_uuid=?", [.text(volumeUUID)])
+        }
         var start = 0
         while start < items.count {
             if isCancelled() { throw CancellationError() }

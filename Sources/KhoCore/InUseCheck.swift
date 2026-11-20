@@ -1,10 +1,12 @@
 import Darwin
 import Foundation
+import Synchronization
 
 /// Never offload something being worked on: recently changed, or open in another process.
 public enum InUseCheck {
     public static let recentlyChanged = "Vừa được sửa"
     public static let openElsewhere = "Đang được mở bởi tiến trình khác"
+    public static let notChecked = "Không kiểm tra được file có đang mở không"
     static let recentWindow: TimeInterval = 600
     static let maxEntries = 50_000
 
@@ -13,8 +15,12 @@ public enum InUseCheck {
             return recentlyChanged
         }
         var st = stat()
-        if lstat(url.path, &st) == 0, st.st_mode & S_IFMT == S_IFREG, isOpen(url) {
-            return openElsewhere
+        if lstat(url.path, &st) == 0, st.st_mode & S_IFMT == S_IFREG {
+            switch openCheck(url) {
+            case .open: return openElsewhere
+            case .unknown: return notChecked
+            case .closed: return nil
+            }
         }
         return nil
     }
@@ -40,23 +46,41 @@ public enum InUseCheck {
         return Date(timeIntervalSince1970: newest)
     }
 
+    enum OpenState: Equatable { case open, closed, unknown }
+
     /// `lsof -t` prints the PIDs holding the file. Synchronous on purpose (it runs inside
-    /// offload checks); gives up after 5 seconds and then treats the file as in use.
-    static func isOpen(_ url: URL) -> Bool {
+    /// offload checks). Output is drained without blocking, so the timeout really applies;
+    /// a tool that cannot start or does not finish in time gives `unknown`, never "closed".
+    static func openCheck(_ url: URL, tool: URL = URL(fileURLWithPath: "/usr/sbin/lsof"),
+                          arguments: [String]? = nil, timeout: TimeInterval = 5) -> OpenState {
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        p.arguments = ["-t", "--", url.path]
+        p.executableURL = tool
+        p.arguments = arguments ?? ["-t", "--", url.path]
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = FileHandle.nullDevice
+        let output = Mutex(Data())
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty { handle.readabilityHandler = nil } else { output.withLock { $0.append(chunk) } }
+        }
         let done = DispatchSemaphore(value: 0)
         p.terminationHandler = { _ in done.signal() }
-        do { try p.run() } catch { return false }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        if done.wait(timeout: .now() + 5) == .timedOut {
-            p.terminate()
-            return true
+        do { try p.run() } catch {
+            pipe.fileHandleForReading.readabilityHandler = nil
+            return .unknown
         }
-        return !String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if done.wait(timeout: .now() + timeout) == .timedOut {
+            let pid = p.processIdentifier
+            DispatchQueue.global().asyncAfter(deadline: .now() + 3) { kill(pid, SIGKILL) }
+            p.terminate()
+            pipe.fileHandleForReading.readabilityHandler = nil
+            return .unknown
+        }
+        // Collect what is still buffered after exit.
+        pipe.fileHandleForReading.readabilityHandler = nil
+        let rest = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
+        let all = output.withLock { $0 } + rest
+        return String(decoding: all, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .closed : .open
     }
 }
