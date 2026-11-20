@@ -113,7 +113,7 @@ struct CleanupView: View {
             } else {
                 Text("Đã chọn \(selectedCandidates.count) nhóm · \(ByteFormat.string(chosenBytes))").monospacedDigit()
                     .foregroundStyle(.secondary)
-                Button("Dọn…") { confirm = selectedCandidates }
+                Button("Dọn \(selectedCandidates.count) nhóm đã chọn") { confirm = selectedCandidates }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
             }
@@ -169,7 +169,8 @@ struct CleanupView: View {
                 if model.cleanupRunning.contains(c.id) {
                     ProgressView().controlSize(.small)
                 } else if c.manualOnly {
-                    Button("Dọn…") { confirm = [c] }
+                    Button(c.id.hasPrefix("trash") ? "Dọn sạch" : "Xoá") { confirm = [c] }
+                        .help("Hỏi lại trước khi xoá")
                 }
             }
             if c.paths.count > 1 {
@@ -206,7 +207,7 @@ struct CleanupView: View {
             if !c.paths.isEmpty {
                 Button("Hiện trong Finder") { NSWorkspace.shared.activateFileViewerSelecting(c.paths) }
             }
-            Button("Dọn riêng nhóm này…") { confirm = [c] }
+            Button("Dọn riêng nhóm này") { confirm = [c] }
         }
         .help(c.paths.count == 1 ? c.paths[0].path : c.detail)
     }
