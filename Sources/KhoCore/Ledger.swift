@@ -50,9 +50,13 @@ public struct OperationItem: Sendable, Equatable {
 
     public var originalURL: URL { URL(fileURLWithPath: originalPath) }
 
-    public func files() -> [CopiedFile] {
-        guard let filesJSON, let data = filesJSON.data(using: .utf8) else { return [] }
-        return (try? JSONDecoder().decode([CopiedFile].self, from: data)) ?? []
+    public func files() -> [CopiedFile] { decodedFiles() ?? [] }
+
+    /// nil when the file list is missing or unreadable (callers that guard deletions must
+    /// treat that as a failure, not as "no files").
+    public func decodedFiles() -> [CopiedFile]? {
+        guard let filesJSON, let data = filesJSON.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode([CopiedFile].self, from: data)
     }
 }
 

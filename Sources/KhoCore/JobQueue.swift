@@ -16,7 +16,7 @@ public struct JobSnapshot: Sendable, Equatable, Identifiable {
 
 /// Progress and cancellation shared between a running job and the queue.
 final class JobControl: Sendable {
-    struct Values { var fraction = 0.0; var detail = ""; var cancelled = false }
+    struct Values { var fraction = 0.0; var detail = ""; var cancelled = false; var lastPublish = 0.0 }
     let values = Mutex(Values())
     let onChange: @Sendable () -> Void
 
@@ -28,12 +28,17 @@ public struct JobContext: Sendable {
     public let id: UUID
     let control: JobControl
 
+    /// Publishes at most about ten times a second; copy callbacks fire far more often.
     public func report(fraction: Double, detail: String) {
-        control.values.withLock {
-            $0.fraction = max(0, min(1, fraction))
-            $0.detail = detail
+        let now = Date().timeIntervalSinceReferenceDate
+        let publish = control.values.withLock { v -> Bool in
+            v.fraction = max(0, min(1, fraction))
+            v.detail = detail
+            guard now - v.lastPublish >= 0.1 || fraction >= 1 else { return false }
+            v.lastPublish = now
+            return true
         }
-        control.onChange()
+        if publish { control.onChange() }
     }
 
     public var isCancelled: Bool { control.values.withLock { $0.cancelled } }

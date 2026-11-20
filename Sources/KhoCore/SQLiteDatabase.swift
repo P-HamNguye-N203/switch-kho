@@ -28,7 +28,7 @@ public final class SQLiteDatabase: @unchecked Sendable {
         }
         sqlite3_busy_timeout(handle, 5000)
         if !readOnly {
-            try execute("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
+            try execute("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA fullfsync=ON; PRAGMA checkpoint_fullfsync=ON;")
         }
     }
 

@@ -135,14 +135,12 @@ public final class OffloadService: Sendable {
         guard let layout = khoFor(op) else { return KhoError.khoOffline.localizedDescription }
         guard let items = try? ledger.items(op.id) else { return "Không đọc được sổ cái" }
         for item in items {
-            guard let rel = item.khoRelPath else { continue }
+            guard let rel = item.khoRelPath else { return "Mục #\(item.id) không có bản trên Kho" }
             if isCancelled() { return "Đã huỷ kiểm tra" }
             guard let root = try? layout.absoluteURL(relative: rel) else { return "Đường dẫn không hợp lệ: \(rel)" }
-            if op.kind == .appLive && item.role == .normal {
-                if !FileOps.exists(root) { return "Không thấy trên Kho: \(rel)" }
-                continue
-            }
-            let files = item.files()
+            if !FileOps.exists(root) { return "Không thấy trên Kho: \(rel)" }
+            if op.kind == .appLive && item.role == .normal { continue }
+            guard let files = item.decodedFiles() else { return "Sổ cái thiếu danh sách file của \(rel)" }
             let total = files.reduce(Int64(0)) { $0 + $1.logicalSize }
             var done: Int64 = 0
             for f in files {
@@ -421,14 +419,65 @@ public final class OffloadService: Sendable {
 
     // MARK: Pull back
 
+    /// Files and symlinks below `root` with their size and modification time, without
+    /// following symlinks. Copies made with `COPYFILE_ALL` keep mtimes, so a staged copy and
+    /// its Kho source have equal signatures until either side is written to.
+    static func treeSignature(_ root: URL) -> [String: String]? {
+        var out: [String: String] = [:]
+        var st = stat()
+        guard lstat(root.path, &st) == 0 else { return nil }
+        func add(_ rel: String, _ st: stat) {
+            let kind = st.st_mode & S_IFMT
+            guard kind == S_IFREG || kind == S_IFLNK else { return }
+            out[rel] = "\(kind)/\(st.st_size)/\(st.st_mtimespec.tv_sec).\(st.st_mtimespec.tv_nsec)"
+        }
+        if (st.st_mode & S_IFMT) != S_IFDIR {
+            add("", st)
+            return out
+        }
+        guard let walker = FileManager.default.enumerator(atPath: root.path) else { return nil }
+        for case let rel as String in walker {
+            var cst = stat()
+            if lstat(root.appendingPathComponent(rel).path, &cst) == 0 { add(rel, cst) }
+        }
+        return out
+    }
+
     func pullBackFromKho(_ itemID: Int64, op: Operation, layout: KhoLayout, target: URL,
                          progress: @escaping @Sendable (CopyProgress) -> Void,
-                         isCancelled: @escaping @Sendable () -> Bool) throws {
+                         isCancelled: @escaping @Sendable () -> Bool, retried: Bool = false) throws {
         guard var item = try ledger.item(id: itemID), let rel = item.khoRelPath else {
             throw KhoError.invalidState("Mục không có bản trên Kho")
         }
+        let src = try layout.absoluteURL(relative: rel)
+
+        // A staged copy from an earlier attempt is only reused when the Kho copy has not
+        // changed since (an app may have written to it in between); otherwise copy again.
+        if item.stage == .copied, let stagePath = item.stagePath {
+            let stage = URL(fileURLWithPath: stagePath)
+            if FileOps.exists(stage), Self.treeSignature(stage) != Self.treeSignature(src) {
+                try FileOps.removeTree(stage)
+                try? ledger.removePartial(stagePath)
+            }
+            if !FileOps.exists(stage) {
+                // Swapped already (crash right after the rename) only when the restored path
+                // is a real item that matches the Kho copy, never our own symlink.
+                if let done = item.restoredPath.map(URL.init(fileURLWithPath:)), !FileOps.isSymlink(done),
+                   FileOps.exists(done), Self.treeSignature(done) == Self.treeSignature(src)
+                {
+                    try ledger.updateItem(itemID, stage: .some(.swapped))
+                    try? ledger.removePartial(stagePath)
+                    return
+                }
+                try ledger.updateItem(itemID, stage: .some(nil), stagePath: .some(nil))
+                try? ledger.removePartial(stagePath)
+                guard !retried else { throw KhoError.invalidState("Bản tạm bị mất hai lần liên tiếp") }
+                return try pullBackFromKho(itemID, op: op, layout: layout, target: target, progress: progress,
+                                           isCancelled: isCancelled, retried: true)
+            }
+        }
+
         if item.stage == nil {
-            let src = try layout.absoluteURL(relative: rel)
             let stage = uniqueSibling(
                 target.deletingLastPathComponent().appendingPathComponent(".switchkho-partial-\(UUID().uuidString)"),
                 suffix: nil)
@@ -447,23 +496,20 @@ public final class OffloadService: Sendable {
                                   restoredPath: .some(target.path))
             item = try ledger.item(id: itemID) ?? item
         }
+
         if item.stage == .copied, let stagePath = item.stagePath {
             let stage = URL(fileURLWithPath: stagePath)
-            if !FileOps.exists(stage), let done = item.restoredPath, FileOps.exists(URL(fileURLWithPath: done)) {
-                try ledger.updateItem(itemID, stage: .some(.swapped))
-            } else {
-                try checkAppNotRunning(op)
-                try removeOurSymlink(at: target)
-                var dest = target
-                if FileOps.exists(dest) {
-                    dest = uniqueSibling(target, suffix: "khôi phục")
-                    try ledger.updateItem(itemID, restoredPath: .some(dest.path))
-                }
-                guard renamex_np(stage.path, dest.path, UInt32(RENAME_EXCL)) == 0 else {
-                    throw KhoError.io("Không đặt được bản về \(dest.path): \(String(cString: strerror(errno)))")
-                }
-                try ledger.updateItem(itemID, stage: .some(.swapped))
+            try checkAppNotRunning(op)
+            try removeOurSymlink(at: target)
+            var dest = target
+            if FileOps.exists(dest) {
+                dest = uniqueSibling(target, suffix: "khôi phục")
+                try ledger.updateItem(itemID, restoredPath: .some(dest.path))
             }
+            guard renamex_np(stage.path, dest.path, UInt32(RENAME_EXCL)) == 0 else {
+                throw KhoError.io("Không đặt được bản về \(dest.path): \(String(cString: strerror(errno)))")
+            }
+            try ledger.updateItem(itemID, stage: .some(.swapped))
             try? ledger.removePartial(stagePath)
         }
     }
@@ -579,10 +625,9 @@ public final class OffloadService: Sendable {
         for item in try ledger.items(opID) {
             guard let rel = item.khoRelPath else { continue }
             do {
-                let url = try layout.absoluteURL(relative: rel)
-                try FileOps.removeTree(url)
+                try deleteOnKho(op, relPath: rel)
                 removed.append(rel)
-                removeEmptyParents(of: url, layout: layout)
+                if let mounted = khoFor(op) { removeEmptyParents(of: try mounted.absoluteURL(relative: rel), layout: mounted) }
             } catch {
                 ledger.log(action: "Không xoá được bản trên Kho", path: rel,
                            detail: error.localizedDescription, ok: false)
