@@ -753,6 +753,27 @@ public final class OffloadService: Sendable {
 
     /// Keeps a folder an app created while the Kho was away: copies it to the Kho first,
     /// then moves it into holding and puts the live operation's symlink back.
+    /// Recreates a missing link of a live operation. The only other place links are made is
+    /// the offload itself.
+    public func relink(opID: Int64, itemID: Int64) throws {
+        let op = try requireOperation(opID)
+        guard op.kind == .appLive, op.state == .holding || op.state == .committed else {
+            throw KhoError.invalidState("Chỉ tạo lại liên kết cho app đang chạy từ Kho")
+        }
+        guard let layout = khoFor(op) else { throw KhoError.khoOffline }
+        try checkAppNotRunning(op)
+        guard let item = try ledger.items(opID).first(where: { $0.id == itemID }), item.role == .normal,
+              !item.restored, let rel = item.khoRelPath
+        else { throw KhoError.notFound("Mục #\(itemID)") }
+        guard !FileOps.exists(item.originalURL) else { throw KhoError.destinationOccupied(item.originalPath) }
+        guard FileOps.exists(try layout.absoluteURL(relative: rel)) else {
+            throw KhoError.notFound("Dữ liệu trên Kho: \(rel)")
+        }
+        try makeOurSymlink(at: item.originalURL, relPath: rel, layout: layout)
+        try ledger.updateItem(itemID, symlinkCreated: true)
+        ledger.log(action: "Tạo lại liên kết", path: item.originalPath, detail: nil, ok: true)
+    }
+
     public func setAside(liveOpID: Int64, folder original: URL,
                          progress: @escaping @Sendable (CopyProgress) -> Void = { _ in },
                          isCancelled: @escaping @Sendable () -> Bool = { false }) throws -> Int64 {
