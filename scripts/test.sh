@@ -9,6 +9,10 @@ source scripts/toolchain.sh
 
 out="${TMPDIR:-/tmp}/switchkho-test-last.txt"
 
+# Sandboxes left behind by a crashed run (they can hold multi-GB sparse files).
+find "${TMPDIR:-/tmp}" -maxdepth 1 -name "switchkho-tests-*" -mmin +60 -print0 2>/dev/null |
+    while IFS= read -r -d '' d; do chflags -R nouchg "$d" 2>/dev/null; rm -rf "$d"; done
+
 set +e
 "$SWIFT_BIN" test "${TEST_FLAGS[@]}" "$@" 2>&1 | tee "$out"
 status=${PIPESTATUS[0]}
