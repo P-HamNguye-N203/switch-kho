@@ -37,6 +37,7 @@ struct SwitchKhoApp: App {
         case .overview: DashboardView()
         case .analyzer: AnalyzerView()
         case .cleanup: CleanupView()
+        case .apps: AppsView()
         default:
             ContentUnavailableView(section.title, systemImage: section.systemImage,
                                    description: Text("Có ở bản sau"))

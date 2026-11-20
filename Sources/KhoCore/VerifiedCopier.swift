@@ -107,7 +107,10 @@ public final class VerifiedCopier: Sendable {
         let entries = try listEntries(src)
         let bytesTotal = entries.reduce(Int64(0)) { $0 + $1.allocated }
         let parent = dst.deletingLastPathComponent()
-        let available = try capacityProvider(parent)
+        // The destination's folders may not exist yet; measure the nearest one that does.
+        var probe = parent
+        while !FileOps.exists(probe), probe.pathComponents.count > 1 { probe = probe.deletingLastPathComponent() }
+        let available = try capacityProvider(probe)
         if bytesTotal + (1 << 30) > available {
             throw KhoError.insufficientSpace(needed: bytesTotal + (1 << 30), available: available)
         }

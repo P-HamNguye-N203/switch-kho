@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Testing
 @testable import KhoCore
 
 /// A throwaway directory tree shaped like the real machine. Every test works inside it.
@@ -81,6 +82,20 @@ struct TestSandbox {
         p.executableURL = executable
         try p.run()
         return p
+    }
+
+    /// Stops a launched process. Never `waitUntilExit()` after an `await`: Foundation can miss
+    /// the exit when the waiting thread is not the one that called `run()`, and hang forever.
+    func stop(_ p: Process?) {
+        guard let p else { return }
+        if p.isRunning { p.terminate() }
+        let deadline = Date().addingTimeInterval(10)
+        while p.isRunning && Date() < deadline { usleep(10_000) }
+        if p.isRunning {
+            kill(p.processIdentifier, SIGKILL)
+            usleep(200_000)
+            if p.isRunning { Issue.record("Tiến trình \(p.processIdentifier) không dừng") }
+        }
     }
 
     func cleanup() {

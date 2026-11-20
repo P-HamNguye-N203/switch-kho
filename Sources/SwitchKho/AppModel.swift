@@ -67,6 +67,12 @@ final class AppModel {
     /// Bundle ID the cleanup list is narrowed to, set from the app table.
     var cleanupFilter: String?
     var cleanupPreviews: [String: String] = [:]
+    /// Groups queued or being cleaned; their buttons stay disabled.
+    var cleanupRunning: Set<String> = []
+    /// Selected app (bundle ID) on the Apps screen.
+    var appsSelection: String?
+    var eligibility: [String: ArchiveEligibility] = [:]
+    var archivedApps: [LedgerOperation] = []
     private var staleTask: Task<Void, Never>?
     private var noticeTask: Task<Void, Never>?
     private var holdingBytesGeneration = 0
@@ -393,6 +399,9 @@ final class AppModel {
             return HoldingRow(op: op, items: items,
                               bytes: items.reduce(0) { $0 + ($1.allocated ?? 0) },
                               overdue: op.state == .holding && (op.holdingUntil ?? .distantFuture) <= now)
+        }
+        archivedApps = ((try? ledger.operations()) ?? []).filter {
+            $0.kind == .appCold && [.holding, .committed, .undoing, .restoring, .committing].contains($0.state)
         }
         // Walking the holding area can take a while; never on the main thread.
         holdingBytesGeneration += 1

@@ -11,8 +11,7 @@ import Testing
         defer { if p.isRunning { p.terminate() } }
         Thread.sleep(forTimeInterval: 0.3)
         #expect(RunningProcesses.isRunning(appURL: app))
-        p.terminate()
-        p.waitUntilExit()
+        sb.stop(p)
         #expect(!RunningProcesses.isRunning(appURL: app))
     }
 }

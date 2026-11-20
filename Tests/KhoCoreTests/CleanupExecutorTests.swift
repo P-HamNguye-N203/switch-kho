@@ -45,7 +45,7 @@ import Testing
         let target = sb.home.appendingPathComponent("Library/Caches/test.runner")
         try sb.makeFile(target.appendingPathComponent("f"), bytes: 10, seed: 1)
         let p = try sb.launch(app.appendingPathComponent("Contents/MacOS/Runner"))
-        defer { p.terminate(); p.waitUntilExit() }
+        defer { sb.stop(p) }
         try await Task.sleep(for: .milliseconds(300))
         await #expect(throws: KhoError.appRunning("Runner")) {
             _ = try await CleanupExecutor.execute(self.candidate([target], .permanent, .mustBeQuit(appURL: app)),

@@ -51,8 +51,11 @@ struct AnalyzerView: View {
                 model.showCleanup(for: selectedApp?.bundleID)
             }
             .help("Mở màn Dọn dẹp, lọc theo app đang chọn trong bảng")
+            Button(selectedApp.map { "Cất \($0.name)…" } ?? "Cất cả app") {
+                model.showApps(select: selectedApp?.bundleID)
+            }
+            .help("Mở màn Ứng dụng với app đang chọn")
             Group {
-                Button("Cất cả app") {}
                 Button("Chạy từ Kho") {}
             }
             .disabled(true)

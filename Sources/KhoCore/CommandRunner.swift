@@ -47,12 +47,13 @@ public enum CommandRunner {
                 if process.isRunning {
                     box.timedOut.withLock { $0 = true }
                     let pid = process.processIdentifier
-                    killChildren(of: pid)
-                    process.terminate()
-                    // A tool that ignores SIGTERM must not hold the job queue forever.
+                    // A tool that ignores SIGTERM must not hold the job queue forever; schedule
+                    // the hard kill first so a stuck child lookup cannot prevent it.
                     DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
                         if process.isRunning { kill(pid, SIGKILL) }
                     }
+                    killChildren(of: pid)
+                    process.terminate()
                 }
             }
         }
@@ -78,7 +79,7 @@ public enum CommandRunner {
         p.arguments = ["-TERM", "-P", String(pid)]
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
-        try? p.run()
+        guard (try? p.run()) != nil else { return }
         p.waitUntilExit()
     }
 }

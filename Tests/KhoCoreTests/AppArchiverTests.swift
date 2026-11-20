@@ -85,7 +85,7 @@ import Testing
         let s = try setUp()
         defer { s.fx.cleanup() }
         let p = try s.fx.sb.launch(s.exe)
-        defer { p.terminate(); p.waitUntilExit() }
+        defer { s.fx.sb.stop(p) }
         try await Task.sleep(for: .milliseconds(300))
         await #expect(throws: KhoError.self) { _ = try await s.archive() }
         #expect(try s.fx.ledger.operationCount() == 0)
@@ -100,7 +100,7 @@ import Testing
         s.fx.afterCopy.withLock { $0 = { _ in
             launched.withLock { p in if p == nil { p = try? sb.launch(exe) } }
         } }
-        defer { launched.withLock { $0?.terminate(); $0?.waitUntilExit() } }
+        defer { sb.stop(launched.withLock { $0 }) }
         try await Task.sleep(for: .milliseconds(50))
         await #expect(throws: KhoError.appRunning("Fake")) { _ = try await s.archive() }
         let op = try #require(try s.fx.ledger.operations().first)
@@ -191,5 +191,49 @@ import Testing
                                  name: "Excel", executableName: "Excel")
         #expect(AppArchiver.sharedGroupContainer("UBF8T346G9.com.microsoft", owner: owner, others: [owner, excel])?.name == "Excel")
         #expect(AppArchiver.sharedGroupContainer("UBF8T346G9.com.microsoft.Word", owner: owner, others: [owner, excel]) == nil)
+    }
+}
+
+/// Archive, commit and restore a fake app on the real Kho, writing only below
+/// /Volumes/Kho/SwitchKho/_selftest-<UUID> (removed afterwards). Run with SWITCHKHO_REAL_KHO=1.
+@Suite(.serialized) struct RealKhoAppArchiverTests {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["SWITCHKHO_REAL_KHO"] == "1"))
+    func realKhoRoundTrip() async throws {
+        let base = URL(fileURLWithPath: "/Volumes/Kho/SwitchKho")
+        try #require(FileOps.exists(URL(fileURLWithPath: "/Volumes/Kho")), "Hãy cắm Kho")
+        let createdBase = !FileOps.exists(base)
+        if createdBase { try FileManager.default.createDirectory(at: base, withIntermediateDirectories: false) }
+        let root = base.appendingPathComponent("_selftest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        let sb = try TestSandbox()
+        defer {
+            try? FileOps.removeTree(root)
+            if createdBase { _ = rmdir(base.path) }
+            sb.cleanup()
+        }
+        let layout = KhoLayout(khoRoot: root, linkRoot: sb.khoLink)
+        let ledger = try Ledger(path: sb.dbPath)
+        let clock = Locked(Date())
+        let service = OffloadService(
+            ledger: ledger, holding: HoldingArea(root: sb.holding), policy: sb.policy, copier: VerifiedCopier(),
+            mountedKho: { MountedKho(uuid: "selftest", layout: layout) },
+            holdDays: { 7 }, now: { clock.withLock { $0 } }, appRunning: { _ in false })
+
+        let app = try sb.makeRunnableFakeApp(name: "Fake", bundleID: "test.fake")
+        let container = sb.home.appendingPathComponent("Library/Containers/test.fake")
+        try sb.makeFile(container.appendingPathComponent("Data/x.bin"), bytes: 8 << 20, seed: 3)
+        let before = try Data(contentsOf: container.appendingPathComponent("Data/x.bin"))
+        let installed = try #require(AppCatalog.read(app))
+        let fp = try #require(AppDataMapper.map(home: sb.home, apps: [installed], overrides: [:]).footprints.first)
+
+        let opID = try await AppArchiver.archive(fp, service: service, ledger: ledger, layout: layout, home: sb.home,
+                                                 isRunning: { _ in false })
+        #expect(!FileOps.exists(app))
+        clock.withLock { $0 = $0.addingTimeInterval(8 * 86_400) }
+        #expect(service.commitDue() == [opID])
+        _ = try await AppArchiver.restore(opID: opID, service: service, ledger: ledger)
+        #expect(FileOps.exists(app.appendingPathComponent("Contents/MacOS/Fake")))
+        #expect(try Data(contentsOf: container.appendingPathComponent("Data/x.bin")) == before)
+        #expect(try ledger.operation(opID)?.state == .restored)
     }
 }
