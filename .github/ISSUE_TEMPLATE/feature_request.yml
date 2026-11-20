@@ -1,0 +1,18 @@
+name: Đề xuất tính năng
+description: Ý tưởng để Switch Kho hữu ích hơn
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Vấn đề
+      description: Bạn đang gặp khó gì?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Đề xuất
+      description: Bạn muốn thấy gì trên màn hình, và kết quả ra sao?
+    validations:
+      required: true

@@ -1,0 +1,44 @@
+name: Báo lỗi
+description: Có gì đó chạy sai
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Chuyện gì xảy ra
+      description: Mô tả lỗi và điều bạn mong đợi.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Các bước tái hiện
+      placeholder: |
+        1. Mở màn …
+        2. Bấm …
+        3. Thấy …
+    validations:
+      required: true
+  - type: dropdown
+    id: data
+    attributes:
+      label: Dữ liệu có bị ảnh hưởng không?
+      options:
+        - Không
+        - Có — file bị mất hoặc nằm sai chỗ
+        - Không chắc
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Phiên bản macOS và commit
+      placeholder: macOS 15.x, commit abc1234
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Nhật ký
+      description: Dán các dòng liên quan ở màn Nhật ký (xoá đường dẫn riêng tư nếu cần).
+      render: text
