@@ -164,7 +164,9 @@ public final class OffloadService: Sendable {
             do {
                 try deleteOnKho(op, relPath: item.khoRelPath)
             } catch {
-                ledger.log(action: "Không xoá được bản trên Kho", path: item.khoRelPath,
+                // Retried whenever this Kho is mounted again.
+                if let rel = item.khoRelPath { try? ledger.addPendingCleanup(khoUUID: op.khoUUID, khoRelPath: rel) }
+                ledger.log(action: "Không xoá được bản trên Kho, sẽ thử lại", path: item.khoRelPath,
                            detail: error.localizedDescription, ok: false)
             }
         }
@@ -301,12 +303,21 @@ public final class OffloadService: Sendable {
         do {
             for (i, p) in planned.enumerated() {
                 let dst = uniqueSibling(try kho.layout.absoluteURL(relative: p.request.khoRelPath), suffix: nil)
-                let report = try copyTracked(from: p.request.original, to: dst, progress: progress,
+                guard let rel = kho.layout.relativePath(dst) else { throw KhoError.blocked(dst.path) }
+                // Record the destination before copying: a crash right after the copier's final
+                // rename must still leave the Kho copy findable for cleanup.
+                try ledger.updateItem(itemIDs[i], khoRelPath: .some(rel))
+                let report: CopyReport
+                do {
+                    report = try copyTracked(from: p.request.original, to: dst, progress: progress,
                                              isCancelled: isCancelled)
-                guard let rel = kho.layout.relativePath(report.destination) else {
-                    throw KhoError.blocked(report.destination.path)
+                } catch KhoError.destinationOccupied(let path) {
+                    // Whatever sits there now is not ours; never delete it.
+                    try ledger.updateItem(itemIDs[i], khoRelPath: .some(nil))
+                    throw KhoError.destinationOccupied(path)
                 }
-                try ledger.updateItem(itemIDs[i], khoRelPath: .some(rel), allocated: report.allocatedBytes,
+                guard FileOps.same(report.destination, dst) else { throw KhoError.blocked(report.destination.path) }
+                try ledger.updateItem(itemIDs[i], allocated: report.allocatedBytes,
                                       filesJSON: Self.encodeFiles(report.files))
             }
             try preHoldCheck()
@@ -408,12 +419,16 @@ public final class OffloadService: Sendable {
         for row in (try? ledger.pendingCleanup(khoUUID: kho.uuid)) ?? [] {
             do {
                 try FileOps.removeTree(kho.layout.absoluteURL(relative: row.khoRelPath))
+                try? ledger.removePendingCleanup(row.id)
                 ledger.log(action: "Đã dọn bản trên Kho", path: row.khoRelPath, detail: nil, ok: true)
+            } catch KhoError.blocked {
+                // A path the layout refuses can never be cleaned; drop it instead of retrying forever.
+                try? ledger.removePendingCleanup(row.id)
+                ledger.log(action: "Bỏ mục dọn không hợp lệ", path: row.khoRelPath, detail: nil, ok: false)
             } catch {
-                ledger.log(action: "Không dọn được bản trên Kho", path: row.khoRelPath,
+                ledger.log(action: "Không dọn được bản trên Kho, sẽ thử lại", path: row.khoRelPath,
                            detail: error.localizedDescription, ok: false)
             }
-            try? ledger.removePendingCleanup(row.id)
         }
     }
 
