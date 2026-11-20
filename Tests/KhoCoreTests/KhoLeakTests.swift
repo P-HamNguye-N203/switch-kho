@@ -198,4 +198,20 @@ import Testing
         let left = (try? FileManager.default.contentsOfDirectory(atPath: sb.layout.archive.path)) ?? []
         #expect(left.isEmpty, "\(left)")
     }
+
+    @Test func ourLinksAreKnownWithoutTheKho() throws {
+        let fx = try ServiceFixture()
+        defer { fx.cleanup() }
+        fx.khoMounted.withLock { $0 = false }
+        let ours = fx.sb.khoLink.appendingPathComponent("Archive/x").path
+        #expect(fx.service.isOurLinkTarget(ours))
+        #expect(!fx.service.isOurLinkTarget(fx.sb.khoLink.path))
+        // A link someone else made straight into a SwitchKho tree is not ours.
+        #expect(!fx.service.isOurLinkTarget(fx.sb.layout.archive.appendingPathComponent("x").path))
+        #expect(!fx.service.isOurLinkTarget("/Volumes/Other/KhoLink/Archive/x"))
+        let link = fx.sb.home.appendingPathComponent("Documents/l")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: ours)
+        try fx.service.removeOurSymlink(at: link)
+        #expect(!FileOps.isSymlink(link))
+    }
 }

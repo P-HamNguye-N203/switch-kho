@@ -244,7 +244,7 @@ import Testing
         let ledger = try Ledger(path: sb.dbPath)
         let clock = Locked(Date())
         let service = OffloadService(
-            ledger: ledger, holding: HoldingArea(root: sb.holding), policy: sb.policy, copier: VerifiedCopier(),
+            ledger: ledger, holding: HoldingArea(root: sb.holding), policy: sb.policy, copier: VerifiedCopier(), linkRoot: sb.khoLink,
             mountedKho: { MountedKho(uuid: "selftest", layout: layout) },
             holdDays: { 7 }, now: { clock.withLock { $0 } }, appRunning: { _ in false })
 

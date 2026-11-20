@@ -40,6 +40,8 @@ public final class OffloadService: Sendable {
     public let holding: HoldingArea
     public let policy: PathPolicy
     public let copier: VerifiedCopier
+    /// The fixed Kho link (`<data>/KhoLink`) every symlink of ours points through.
+    public let linkRoot: URL
     let mountedKho: @Sendable () -> MountedKho?
     let holdDays: @Sendable () -> Int
     let now: @Sendable () -> Date
@@ -48,6 +50,7 @@ public final class OffloadService: Sendable {
 
     public init(
         ledger: Ledger, holding: HoldingArea, policy: PathPolicy, copier: VerifiedCopier,
+        linkRoot: URL,
         mountedKho: @escaping @Sendable () -> MountedKho?,
         holdDays: @escaping @Sendable () -> Int,
         now: @escaping @Sendable () -> Date,
@@ -58,6 +61,7 @@ public final class OffloadService: Sendable {
         self.holding = holding
         self.policy = policy
         self.copier = copier
+        self.linkRoot = linkRoot
         self.mountedKho = mountedKho
         self.holdDays = holdDays
         self.now = now
@@ -98,17 +102,11 @@ public final class OffloadService: Sendable {
         _ = lchflags(url.path, UInt32(UF_IMMUTABLE))
     }
 
-    /// True when `target` was written by this app: through the Kho link, or straight into a
-    /// `SwitchKho/{Archive|Apps|Live}` tree (older links).
+    /// True when `target` was written by this app. Every link it creates points through the
+    /// fixed Kho link, so this holds whether or not a Kho is mounted.
     func isOurLinkTarget(_ target: String) -> Bool {
-        if let layout = mountedKho()?.layout, layout.isOurLinkTarget(URL(fileURLWithPath: target)) {
-            return true
-        }
-        let parts = FileOps.components(target)
-        for (i, part) in parts.enumerated() where part == "KhoLink" || part == "SwitchKho" {
-            if i + 2 < parts.count, ["Archive", "Apps", "Live"].contains(parts[i + 1]) { return true }
-        }
-        return false
+        let url = URL(fileURLWithPath: target)
+        return FileOps.isUnder(url, linkRoot) && !FileOps.same(url, linkRoot)
     }
 
     /// Removes `url` only when it is a symlink created by this app.

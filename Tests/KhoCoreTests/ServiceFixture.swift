@@ -52,7 +52,7 @@ final class ServiceFixture: Sendable {
         let clock = self.clock, mounted = self.khoMounted, running = self.running
         let kho = MountedKho(uuid: Self.khoUUID, layout: sb.layout)
         service = OffloadService(
-            ledger: ledger, holding: holding, policy: sb.policy, copier: copier,
+            ledger: ledger, holding: holding, policy: sb.policy, copier: copier, linkRoot: sb.khoLink,
             mountedKho: { mounted.withLock { $0 } ? kho : nil },
             holdDays: { 7 }, now: { clock.withLock { $0 } },
             appRunning: { _ in running.withLock { $0 } })

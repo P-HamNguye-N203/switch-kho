@@ -162,7 +162,7 @@ final class AppModel {
         linkRoot = dataDir.appendingPathComponent("KhoLink")
         let khoCell = self.khoCell, appIndex = self.appIndex, ledger = self.ledger
         offloadService = OffloadService(
-            ledger: ledger, holding: holding, policy: policy, copier: copier,
+            ledger: ledger, holding: holding, policy: policy, copier: copier, linkRoot: linkRoot,
             mountedKho: { khoCell.value.withLock { $0 } },
             holdDays: { Int((try? ledger.setting("hold.days")) ?? nil ?? "") ?? 7 },
             now: { Date() },
