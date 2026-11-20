@@ -46,8 +46,13 @@ public enum CommandRunner {
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
                 if process.isRunning {
                     box.timedOut.withLock { $0 = true }
-                    killChildren(of: process.processIdentifier)
+                    let pid = process.processIdentifier
+                    killChildren(of: pid)
                     process.terminate()
+                    // A tool that ignores SIGTERM must not hold the job queue forever.
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
+                        if process.isRunning { kill(pid, SIGKILL) }
+                    }
                 }
             }
         }

@@ -29,6 +29,15 @@ import Testing
         #expect(Date().timeIntervalSince(quick) < 4)
     }
 
+    @Test func toolIgnoringTermIsKilled() async throws {
+        let start = Date()
+        await #expect(throws: KhoError.io("Quá thời gian")) {
+            _ = try await CommandRunner.run(URL(fileURLWithPath: "/bin/sh"),
+                                            ["-c", "trap '' TERM; while :; do sleep 1; done"], timeout: 0.5)
+        }
+        #expect(Date().timeIntervalSince(start) < 6)
+    }
+
     @Test func timesOut() async throws {
         let start = Date()
         await #expect(throws: KhoError.io("Quá thời gian")) {

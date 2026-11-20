@@ -160,7 +160,17 @@ public final class OffloadService: Sendable {
     }
 
     func failCopying(_ op: Operation, error: String) {
-        for item in (try? ledger.items(op.id)) ?? [] {
+        let items = (try? ledger.items(op.id)) ?? []
+        defer {
+            // Folders the copy created and that are now empty (deepest first).
+            if let layout = khoFor(op) {
+                let urls = items.compactMap(\.khoRelPath).compactMap { try? layout.absoluteURL(relative: $0) }
+                for url in urls.sorted(by: { $0.pathComponents.count > $1.pathComponents.count }) {
+                    removeEmptyParents(of: url, layout: layout)
+                }
+            }
+        }
+        for item in items {
             do {
                 try deleteOnKho(op, relPath: item.khoRelPath)
             } catch {
@@ -271,14 +281,17 @@ public final class OffloadService: Sendable {
     public func offload(
         kind: OperationKind, title: String, bundleID: String?, requests: [OffloadRequest],
         preHoldCheck: @escaping @Sendable () throws -> Void = {},
+        afterEachHold: (@Sendable () throws -> Void)? = nil,
         progress: @escaping @Sendable (CopyProgress) -> Void,
         isCancelled: @escaping @Sendable () -> Bool
     ) throws -> Int64 {
         guard mountedKho() != nil else { throw KhoError.khoOffline }
         try precheck(requests)
+        // Re-checked after every move: throwing puts every original back.
+        let afterHold: ((OperationItem, KhoLayout) throws -> Void)? = afterEachHold.map { check in { _, _ in try check() } }
         return try runOffload(kind: kind, title: title, bundleID: bundleID,
                               planned: requests.map { PlannedItem(request: $0, role: .normal) },
-                              preHoldCheck: preHoldCheck, afterHold: nil,
+                              preHoldCheck: preHoldCheck, afterHold: afterHold,
                               progress: progress, isCancelled: isCancelled)
     }
 
