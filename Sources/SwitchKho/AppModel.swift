@@ -66,6 +66,12 @@ final class AppModel {
     var isEjecting = false
     /// Bumped whenever the catalog or the rules change, so views reload.
     var catalogGeneration = 0
+    /// Bumped after copies, so the two file panes reload.
+    var filesGeneration = 0
+    /// Bumped by every refresh of operations, so lists that read the ledger reload.
+    var operationsGeneration = 0
+    /// Text handed from the menu bar search to the catalog screen.
+    var catalogQuery: String?
     /// Only the normal data folder registers the real app as a login item; test sessions don't.
     var usesDefaultDataDir: Bool {
         FileOps.same(dataDir, FileManager.default.homeDirectoryForCurrentUser
@@ -153,7 +159,9 @@ final class AppModel {
             exit(0)
         }
         do {
-            return try AppModel(dataDir: dataDir, lock: lock)
+            let model = try AppModel(dataDir: dataDir, lock: lock)
+            AppDelegate.model = model
+            return model
         } catch {
             let alert = NSAlert()
             alert.messageText = "Không mở được sổ cái Switch Kho"
@@ -163,11 +171,15 @@ final class AppModel {
         }
     }
 
+    /// `--data-dir` (a separate ledger, holding area and Kho link for test sessions) exists only
+    /// in debug builds and in the acceptance install made with `scripts/install.sh --test-sessions`.
     static func dataDirectory() -> URL {
+        #if DEBUG || SWITCHKHO_TEST_SESSIONS
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--data-dir"), i + 1 < args.count {
             return URL(fileURLWithPath: (args[i + 1] as NSString).expandingTildeInPath)
         }
+        #endif
         return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/SwitchKho")
     }
@@ -459,6 +471,7 @@ final class AppModel {
 
     func refreshOperations() {
         let states: Set<OperationState> = [.moving, .holding, .undoing, .restoring, .committing]
+        operationsGeneration += 1
         let ops = ((try? ledger.operations()) ?? []).filter { states.contains($0.state) || $0.needsReview }
         let now = Date()
         holdingRows = ops.map { op in

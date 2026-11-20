@@ -3,6 +3,22 @@ import Testing
 @testable import KhoCore
 
 @Suite struct LedgerTests {
+    @Test func readSettingsIsReadOnly() throws {
+        let sb = try TestSandbox()
+        defer { sb.cleanup() }
+        #expect(try Ledger.readSettings(path: sb.dbPath, keys: ["kho.uuid"]).isEmpty)
+        let ledger = try Ledger(path: sb.dbPath)
+        try ledger.setSetting("kho.uuid", "U")
+        try ledger.setSetting("kho.token", "T")
+        try ledger.setSetting("other", "x")
+        let before = try ledger.db.scalarInt("PRAGMA user_version")
+        let got = try Ledger.readSettings(path: sb.dbPath, keys: ["kho.uuid", "kho.token", "missing"])
+        #expect(got == ["kho.uuid": "U", "kho.token": "T"])
+        #expect(try ledger.db.scalarInt("PRAGMA user_version") == before)
+        try ledger.setSetting("kho.uuid", "V")
+        #expect(try Ledger.readSettings(path: sb.dbPath, keys: ["kho.uuid"])["kho.uuid"] == "V")
+    }
+
     func backups(_ dir: URL) -> [String] {
         ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
             .filter { $0.hasPrefix(".ledger-backup.tmp-") }

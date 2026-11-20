@@ -60,9 +60,12 @@ extension AppModel {
     }
 
     /// The archive operation that owns a catalog entry, if it is a personal item we can bring back.
-    func operation(for entry: CatalogEntry) -> LedgerOperation? {
-        guard entry.item.relPath.hasPrefix("SwitchKho/Archive/") else { return nil }
-        var rel = entry.item.relPath
+    func operation(for entry: CatalogEntry) -> LedgerOperation? { operation(forRelPath: entry.item.relPath) }
+
+    /// Walks up from a path on the Kho to the archived item that contains it.
+    func operation(forRelPath relPath: String) -> LedgerOperation? {
+        guard relPath.hasPrefix("SwitchKho/Archive/") else { return nil }
+        var rel = relPath
         while rel.hasPrefix("SwitchKho/Archive/") {
             if let (op, _) = (try? ledger.item(khoRelPath: rel)) ?? nil,
                op.kind == .personal, op.state == .holding || op.state == .committed { return op }

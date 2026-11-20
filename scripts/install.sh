@@ -4,7 +4,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-scripts/build-app.sh
+scripts/build-app.sh "$@"
 pkill -x SwitchKho || true
 rm -rf "$HOME/Applications/Switch Kho.app"
 mkdir -p "$HOME/Applications"

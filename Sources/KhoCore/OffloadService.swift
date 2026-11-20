@@ -260,6 +260,33 @@ public final class OffloadService: Sendable {
         }, progress: progress, isCancelled: isCancelled)
     }
 
+    /// Copies `src` into `folder` (between this Mac and the Kho, either way) without touching
+    /// the source. The side on this Mac must pass the personal-file policy; the copy is
+    /// verified and its partial is tracked like an offload's.
+    @discardableResult
+    public func copyOnly(_ src: URL, intoFolder folder: URL,
+                         progress: @escaping @Sendable (CopyProgress) -> Void = { _ in },
+                         isCancelled: @escaping @Sendable () -> Bool = { false }) throws -> URL {
+        let kho = mountedKho()
+        let onKho: (URL) -> Bool = { url in kho?.layout.relativePath(url) != nil || kho.map { FileOps.same(url, $0.layout.khoRoot) } == true }
+        let dst = folder.appendingPathComponent(src.lastPathComponent)
+        if FileOps.isSymlink(src) { throw KhoError.blocked(src.path) }
+        if !onKho(src) { try policy.check(src, purpose: .personal) }
+        if !onKho(dst) { try policy.check(dst, purpose: .personal) }
+        if onKho(dst), let kho, FileOps.isUnder(dst, kho.layout.live) || FileOps.isUnder(dst, kho.layout.apps) {
+            throw KhoError.blocked(dst.path)
+        }
+        do {
+            _ = try copyTracked(from: src, to: dst, progress: progress, isCancelled: isCancelled)
+            ledger.log(action: "copy", path: src.path, detail: dst.path, ok: true)
+        } catch {
+            ledger.log(action: "copy", path: src.path, detail: "\(dst.path): \(error.localizedDescription)", ok: false)
+            throw error
+        }
+        if onKho(dst), let rel = kho?.layout.relativePath(dst) { onKhoChanged?([rel], []) }
+        return dst
+    }
+
     static func encodeFiles(_ files: [CopiedFile]) -> String {
         (try? String(data: JSONEncoder().encode(files), encoding: .utf8)) ?? "[]"
     }

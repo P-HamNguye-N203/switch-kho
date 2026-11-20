@@ -466,6 +466,19 @@ public final class Ledger: @unchecked Sendable {
         }
     }
 
+    /// Reads a few settings without opening the ledger for writing (another Switch Kho may be
+    /// running). Missing file or keys give an empty or partial result.
+    public static func readSettings(path: URL, keys: [String]) throws -> [String: String] {
+        guard FileManager.default.fileExists(atPath: path.path), !keys.isEmpty else { return [:] }
+        let db = try SQLiteDatabase(path: path.path, readOnly: true)
+        defer { db.close() }
+        let ph = Array(repeating: "?", count: keys.count).joined(separator: ",")
+        let rows = try db.query("SELECT key, value FROM settings WHERE key IN (\(ph))", keys.map { .text($0) }) {
+            ($0.text(0), $0.text(1))
+        }
+        return Dictionary(rows, uniquingKeysWith: { a, _ in a })
+    }
+
     /// Replaces an empty ledger at `path` with `backup`. Callers must have closed every
     /// connection to `path`. Unfinished operations are flagged for review because the
     /// backup may be older than reality.

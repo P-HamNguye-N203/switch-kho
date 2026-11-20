@@ -97,6 +97,23 @@ import Testing
         #expect(again.skipped.count == 1)
     }
 
+    @Test func copyOnlyKeepsTheSourceAndRefusesOccupiedTargets() throws {
+        let fx = try ServiceFixture()
+        defer { fx.cleanup() }
+        let dir = try oldFolder(fx, "c")
+        let khoFolder = fx.sb.layout.archive.appendingPathComponent("tay")
+        let dst = try fx.service.copyOnly(dir, intoFolder: khoFolder)
+        #expect(FileOps.exists(dir.appendingPathComponent("anh.jpg")))
+        #expect(FileOps.exists(dst.appendingPathComponent("anh.jpg")))
+        #expect(throws: KhoError.self) { try fx.service.copyOnly(dir, intoFolder: khoFolder) }
+        // Back to this Mac.
+        let back = try fx.service.copyOnly(dst, intoFolder: fx.sb.home.appendingPathComponent("Documents"))
+        #expect(FileOps.exists(back.appendingPathComponent("Báo cáo năm.pdf")))
+        #expect(try fx.ledger.partials().isEmpty)
+        // Never into app or live data on the Kho.
+        #expect(throws: KhoError.self) { try fx.service.copyOnly(dir, intoFolder: fx.sb.layout.live) }
+    }
+
     @Test func bringBackRefusesAnOccupiedPlace() throws {
         let fx = try ServiceFixture()
         defer { fx.cleanup() }

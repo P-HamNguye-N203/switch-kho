@@ -11,7 +11,10 @@ source scripts/toolchain.sh
 KC="$HOME/Library/Keychains/switchkho-signing.keychain-db"
 APP="build/Switch Kho.app"
 
-"$SWIFT_BIN" build -c release
+# --test-sessions: an acceptance build that also accepts --data-dir for separate test sessions.
+EXTRA=()
+if [ "${1:-}" = "--test-sessions" ]; then EXTRA=(-Xswiftc -DSWITCHKHO_TEST_SESSIONS); fi
+"$SWIFT_BIN" build -c release ${EXTRA[@]+"${EXTRA[@]}"}
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

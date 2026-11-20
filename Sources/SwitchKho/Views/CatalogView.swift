@@ -29,6 +29,8 @@ struct CatalogView: View {
         }
         .padding(20)
         .navigationTitle("Danh mục")
+        .onAppear(perform: takeQuery)
+        .onChange(of: model.catalogQuery) { takeQuery() }
         .confirmationDialog("Lấy về chỗ cũ?", isPresented: Binding(presenting: $confirmBack),
                             presenting: confirmBack) { op in
             Button("Lấy về") { model.bringBackPersonal(op) }
@@ -41,6 +43,14 @@ struct CatalogView: View {
     }
 
     // MARK: Search
+
+    /// A search typed in the menu bar.
+    private func takeQuery() {
+        guard let q = model.catalogQuery else { return }
+        model.catalogQuery = nil
+        mode = .search
+        query = q
+    }
 
     private var searchPane: some View {
         VStack(alignment: .leading, spacing: 8) {
