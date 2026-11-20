@@ -38,7 +38,16 @@ public struct HoldingArea: Sendable {
             if err == EXDEV { throw KhoError.io("Vùng chờ phải cùng ổ với bản gốc") }
             if err == EEXIST { throw KhoError.destinationOccupied(slot.path) }
             if err == ENOENT { throw KhoError.notFound(original.path) }
-            if err == EPERM || err == EACCES { throw KhoError.notDeletable(original.path) }
+            // EPERM without a lock flag is macOS refusing (App Management, SIP).
+            if err == EPERM {
+                let locks = UInt32(UF_IMMUTABLE | UF_APPEND | SF_IMMUTABLE | SF_APPEND)
+                let parent = original.deletingLastPathComponent()
+                if (FileOps.flags(original) | FileOps.flags(parent)) & locks != 0 {
+                    throw KhoError.notDeletable(original.path)
+                }
+                throw KhoError.notPermitted(original.path)
+            }
+            if err == EACCES { throw KhoError.notDeletable(original.path) }
             throw KhoError.io("Không dời được vào vùng chờ \(original.path): \(String(cString: strerror(err)))")
         }
     }

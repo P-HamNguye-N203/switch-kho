@@ -16,6 +16,7 @@ final class ServiceFixture: Sendable {
     let ledger: Ledger
     let service: OffloadService
     let clock = Locked(Date(timeIntervalSince1970: 1_900_000_000))
+    let holdError = Locked<KhoError>(.io("hook: hold failed"))
     let khoMounted = Locked(true)
     let running = Locked(false)
     /// File names whose copy gets one byte flipped after copyfile.
@@ -42,11 +43,11 @@ final class ServiceFixture: Sendable {
             }
             afterCopy.withLock { $0 }?(url)
         })
-        let failHoldFor = self.failHoldFor
+        let failHoldFor = self.failHoldFor, holdError = self.holdError
         let holding = HoldingArea(
             root: sb.home.appendingPathComponent("Library/Application Support/SwitchKho/Holding"),
             beforeRename: { url in
-                if failHoldFor.withLock({ $0 }) == url.lastPathComponent { throw KhoError.io("hook: hold failed") }
+                if failHoldFor.withLock({ $0 }) == url.lastPathComponent { throw holdError.withLock { $0 } }
             })
         let clock = self.clock, mounted = self.khoMounted, running = self.running
         let kho = MountedKho(uuid: Self.khoUUID, layout: sb.layout)

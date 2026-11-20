@@ -8,6 +8,7 @@ public enum KhoError: LocalizedError, Equatable, Sendable {
     case khoOffline
     case appRunning(String)
     case notDeletable(String)
+    case notPermitted(String)
     case insufficientSpace(needed: Int64, available: Int64)
     case destinationOccupied(String)
     case invalidState(String)
@@ -29,6 +30,8 @@ public enum KhoError: LocalizedError, Equatable, Sendable {
             return "Ứng dụng đang chạy, hãy thoát trước: \(n)"
         case .notDeletable(let p):
             return "Không có quyền xoá bản gốc: \(p)"
+        case .notPermitted(let p):
+            return "macOS không cho dời mục này: \(p)"
         case .insufficientSpace(let needed, let available):
             return "Không đủ chỗ trống: cần \(ByteFormat.string(needed)), còn \(ByteFormat.string(available))."
         case .destinationOccupied(let p):

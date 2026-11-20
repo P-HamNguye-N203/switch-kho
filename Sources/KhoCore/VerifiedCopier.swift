@@ -100,7 +100,7 @@ public final class VerifiedCopier: Sendable {
 
     public func copy(
         from src: URL, to dst: URL,
-        onPartialCreated: @Sendable (URL) -> Void = { _ in },
+        onPartialCreated: @Sendable (URL) throws -> Void = { _ in },
         progress: @escaping @Sendable (CopyProgress) -> Void,
         isCancelled: @escaping @Sendable () -> Bool
     ) throws -> CopyReport {
@@ -118,7 +118,8 @@ public final class VerifiedCopier: Sendable {
 
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         let partial = parent.appendingPathComponent(".switchkho-partial-\(UUID().uuidString)")
-        onPartialCreated(partial)
+        // Recorded before it exists: a partial nobody knows about could never be cleaned up.
+        try onPartialCreated(partial)
 
         do {
             var files: [CopiedFile] = []
@@ -153,8 +154,9 @@ public final class VerifiedCopier: Sendable {
                 try runCopyfile(entry.src, target, flags: COPYFILE_METADATA, box: nil)
                 FileOps.unlock(target)
             }
-            if FileOps.exists(dst) { throw KhoError.destinationOccupied(dst.path) }
-            guard rename(partial.path, dst.path) == 0 else {
+            // Exclusive: never replaces something that appeared at the destination meanwhile.
+            guard renamex_np(partial.path, dst.path, UInt32(RENAME_EXCL)) == 0 else {
+                if errno == EEXIST { throw KhoError.destinationOccupied(dst.path) }
                 throw KhoError.io("Không đổi tên được bản tạm: \(String(cString: strerror(errno)))")
             }
             let allocated = files.reduce(Int64(0)) { $0 + $1.allocated }

@@ -154,9 +154,23 @@ import Testing
         try fx.ledger.addPartial(partial.path)
         let khoPartial = fx.sb.layout.archive.appendingPathComponent("a/.switchkho-partial-1")
         try fx.sb.makeFile(khoPartial.appendingPathComponent("y"), bytes: 10, seed: 1)
+        // Kho partials are recorded by Kho identity when created.
+        try fx.ledger.addPendingCleanup(khoUUID: ServiceFixture.khoUUID,
+                                        khoRelPath: try #require(fx.sb.layout.relativePath(khoPartial)))
         _ = fx.service.recover()
         #expect(!FileOps.exists(partial))
         #expect(!FileOps.exists(khoPartial))
         #expect(try fx.ledger.partials().isEmpty)
+        #expect(try fx.ledger.pendingCleanup(khoUUID: ServiceFixture.khoUUID).isEmpty)
+    }
+
+    /// Nothing the ledger does not know about is ever deleted from the Kho.
+    @Test func unrecordedKhoPartialIsLeftAlone() throws {
+        let fx = try ServiceFixture()
+        defer { fx.cleanup() }
+        let stray = fx.sb.layout.archive.appendingPathComponent("a/.switchkho-partial-2")
+        try fx.sb.makeFile(stray.appendingPathComponent("y"), bytes: 10, seed: 1)
+        _ = fx.service.recover()
+        #expect(FileOps.exists(stray))
     }
 }

@@ -363,6 +363,11 @@ public final class Ledger: @unchecked Sendable {
         try db.run("DELETE FROM pending_cleanup WHERE id=?", [.int(id)])
     }
 
+    public func removePendingCleanup(khoUUID: String, khoRelPath: String) throws {
+        try db.run("DELETE FROM pending_cleanup WHERE kho_uuid=? AND kho_rel_path=?",
+                   [.text(khoUUID), .text(khoRelPath)])
+    }
+
     public func addPartial(_ path: String) throws {
         try db.run("INSERT OR REPLACE INTO partials(path, created_at) VALUES(?,?)",
                    [.text(path), .double(Self.now())])

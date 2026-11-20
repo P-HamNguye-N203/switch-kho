@@ -33,6 +33,8 @@ struct TestSandbox {
         }
         try FileManager.default.createSymbolicLink(
             at: khoLink, withDestinationURL: kho.appendingPathComponent("SwitchKho"))
+        // Offloads check the Kho is still there through its identity file.
+        try Data().write(to: layout.identityFile)
     }
 
     var policy: PathPolicy {

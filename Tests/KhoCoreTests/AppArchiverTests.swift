@@ -143,7 +143,7 @@ import Testing
         #expect(op.state == .failed)
         let apps = s.fx.sb.layout.apps
         let left = (try? FileManager.default.subpathsOfDirectory(atPath: apps.path))?.filter { !$0.isEmpty } ?? []
-        #expect(left.allSatisfy { !$0.contains("Fake") && !$0.contains("test.fake/") }, "\(left)")
+        #expect(left.isEmpty, "\(left)")
     }
 
     @Test func lockedBundleIsRefused() async throws {
@@ -167,6 +167,33 @@ import Testing
         }
         #expect(!FileOps.exists(s.app))
         #expect(try s.fx.ledger.operation(opID)?.state == .holding)
+    }
+
+    @Test func appManagementRefusalExplainsThePermission() async throws {
+        let s = try setUp()
+        defer { s.fx.cleanup() }
+        s.fx.holdError.withLock { $0 = .notPermitted(s.app.path) }
+        s.fx.failHoldFor.withLock { $0 = "Fake.app" }
+        await #expect(throws: KhoError.io(AppArchiver.appManagementHint)) { _ = try await s.archive() }
+        #expect(FileOps.exists(s.app))
+        #expect(try s.fx.ledger.operations().first?.state == .failed)
+    }
+
+    @Test func restoreRefusesWhenTheAppWasReinstalled() async throws {
+        let s = try setUp()
+        defer { s.fx.cleanup() }
+        let opID = try await s.archive()
+        s.fx.advance(days: 8)
+        #expect(s.fx.service.commitDue() == [opID])
+        // The user installed the app again meanwhile.
+        let reinstalled = try s.fx.sb.makeRunnableFakeApp(name: "Fake", bundleID: "test.fake")
+        await #expect(throws: KhoError.self) {
+            _ = try await AppArchiver.restore(opID: opID, service: s.fx.service, ledger: s.fx.ledger)
+        }
+        #expect(try s.fx.ledger.operation(opID)?.state == .committed)
+        #expect(FileOps.exists(reinstalled))
+        let siblings = try FileManager.default.contentsOfDirectory(atPath: s.fx.sb.applications.path)
+        #expect(siblings == ["Fake.app"])
     }
 
     @Test func warnsAboutContainersAndLaunchAgents() throws {
@@ -212,6 +239,8 @@ import Testing
             sb.cleanup()
         }
         let layout = KhoLayout(khoRoot: root, linkRoot: sb.khoLink)
+        try FileManager.default.createDirectory(at: layout.base, withIntermediateDirectories: true)
+        try Data().write(to: layout.identityFile)
         let ledger = try Ledger(path: sb.dbPath)
         let clock = Locked(Date())
         let service = OffloadService(

@@ -66,6 +66,8 @@ extension OffloadService {
         for path in (try? ledger.partials()) ?? [] {
             let url = URL(fileURLWithPath: path)
             if referenced.contains(path) { continue }
+            // Its volume is not mounted: removing nothing must not forget it.
+            if !FileOps.exists(url.deletingLastPathComponent()) { continue }
             if url.lastPathComponent.hasPrefix(".switchkho-partial-") {
                 do {
                     try FileOps.removeTree(url)
@@ -79,23 +81,12 @@ extension OffloadService {
         }
     }
 
-    func cleanKhoTemporaries(_ base: URL, depth: Int = 0) {
-        guard depth < 12,
-              let names = try? FileManager.default.contentsOfDirectory(atPath: base.path)
-        else { return }
-        for name in names {
-            let url = base.appendingPathComponent(name)
-            if name.hasPrefix(".switchkho-partial-") || name.hasPrefix(".ledger-backup.tmp-") {
-                try? FileOps.removeTree(url)
-                try? ledger.removePartial(url.path)
-                continue
-            }
-            var isDir: ObjCBool = false
-            if !FileOps.isSymlink(url), FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
-               isDir.boolValue
-            {
-                cleanKhoTemporaries(url, depth: depth + 1)
-            }
+    /// Partial copies are tracked in `pending_cleanup`, so only the ledger backup's temporary
+    /// files directly in the base need a look; walking the whole Kho tree is too slow.
+    func cleanKhoTemporaries(_ base: URL) {
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: base.path)) ?? []
+        where name.hasPrefix(".ledger-backup.tmp-") {
+            try? FileOps.removeTree(base.appendingPathComponent(name))
         }
     }
 }

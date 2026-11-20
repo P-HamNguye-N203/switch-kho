@@ -32,7 +32,7 @@ extension AppModel {
         let others = appDataMap?.footprints.map(\.app) ?? []
         Task {
             do {
-                let opID = try await jobQueue.run(title: "Cất \(fp.app.name) vào Kho") { ctx in
+                let opID = try await jobQueue.run(title: "Cất \(fp.app.name) vào Kho", cancellable: true) { ctx in
                     try await AppArchiver.archive(
                         fp, service: service, ledger: ledger, layout: layout, otherApps: others,
                         isRunning: { RunningProcesses.isRunning(bundleID: $0.bundleID, appURL: $0.url) },
@@ -57,7 +57,7 @@ extension AppModel {
         busyOps.insert(op.id)
         Task {
             do {
-                let result = try await jobQueue.run(title: "Lấy về \(op.title ?? "#\(op.id)")") { ctx in
+                let result = try await jobQueue.run(title: "Lấy về \(op.title ?? "#\(op.id)")", cancellable: true) { ctx in
                     try await AppArchiver.restore(
                         opID: op.id, service: service, ledger: ledger,
                         progress: { p in
@@ -68,6 +68,8 @@ extension AppModel {
                 }
                 if result.signatureBroken {
                     lastError = "Chữ ký của \(op.title ?? "app") sau khi lấy về không hợp lệ — đừng mở app, hãy cài lại."
+                } else if !result.relocated.isEmpty {
+                    lastError = "Một phần được đưa về chỗ khác vì chỗ cũ đã có dữ liệu:\n" + result.relocated.joined(separator: "\n")
                 } else {
                     notify("Đã lấy về \(op.title ?? "#\(op.id)")")
                 }

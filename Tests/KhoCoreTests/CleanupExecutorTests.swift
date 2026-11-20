@@ -28,6 +28,7 @@ import Testing
         defer { sb.cleanup() }
         let file = sb.home.appendingPathComponent("Downloads/old.dmg")
         try sb.makeFile(file, bytes: 100, seed: 1)
+        try sb.makeFile(sb.home.appendingPathComponent("Downloads/new.dmg"), bytes: 8192, seed: 2)
         let trashDir = sb.root.appendingPathComponent("trash")
         try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
         _ = try await CleanupExecutor.execute(
@@ -35,6 +36,11 @@ import Testing
             trash: { try FileManager.default.moveItem(at: $0, to: trashDir.appendingPathComponent($0.lastPathComponent)) },
             freeSpace: { 0 })
         #expect(FileOps.exists(trashDir.appendingPathComponent("old.dmg")))
+        let out = try await CleanupExecutor.execute(
+            candidate([sb.home.appendingPathComponent("Downloads/new.dmg")], .trash), policy: sb.policy,
+            ledger: try ledger(sb), isRunning: { _ in false }, trash: { try FileOps.removeTree($0) }, freeSpace: { 0 })
+        // Moving to Trash frees nothing yet, but the report says how much was taken away.
+        #expect(out.freedBytes > 0)
         #expect(!FileOps.exists(file))
     }
 

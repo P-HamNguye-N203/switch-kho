@@ -11,6 +11,8 @@ public struct ArchiveEligibility: Sendable, Equatable {
 public struct AppRestoreResult: Sendable {
     /// The signature verified before archiving but not after coming back.
     public let signatureBroken: Bool
+    /// Items that came back beside their old place because something new sat there.
+    public var relocated: [String] = []
 }
 
 /// Archives a whole app (bundle plus every data folder assigned to it) to the Kho, and
@@ -133,12 +135,18 @@ public enum AppArchiver {
                 try ledger.setSetting("codesign.\(op.uid)", String(before))
             }
             return opID
-        } catch KhoError.notDeletable(let what) where what == app.url.path {
-            throw KhoError.io("Cần cấp quyền App Management cho Switch Kho: Cài đặt hệ thống › Quyền riêng tư & Bảo mật › Quản lý ứng dụng")
-        } catch let error as NSError where error.domain == NSPOSIXErrorDomain
-            && (error.code == Int(EPERM) || error.code == Int(EACCES)) {
-            throw KhoError.io("Cần cấp quyền App Management cho Switch Kho: Cài đặt hệ thống › Quyền riêng tư & Bảo mật › Quản lý ứng dụng")
+        } catch KhoError.notPermitted(let what) where what == app.url.path {
+            // Only known once the copy is done; the Kho copy has been removed again.
+            throw KhoError.io(appManagementHint)
         }
+    }
+
+    public static let appManagementHint = "macOS chặn dời \"app\". Hãy cấp quyền cho Switch Kho ở Cài đặt hệ thống › Quyền riêng tư & Bảo mật › Quản lý ứng dụng, rồi thoát và mở lại Switch Kho."
+
+    /// Original places that something else (for example a reinstalled app) occupies now.
+    static func occupiedOriginals(_ items: [OperationItem]) -> [String] {
+        items.filter { !$0.restored && !$0.released && $0.role == .normal && FileOps.exists($0.originalURL) }
+            .map(\.originalPath)
     }
 
     /// Undo while holding, pull back from the Kho once committed. Then re-registers the app
@@ -151,14 +159,29 @@ public enum AppArchiver {
         guard let op = try ledger.operation(opID), op.kind == .appCold else {
             throw KhoError.notFound("Thao tác #\(opID)")
         }
+        // Refuse up front instead of bringing the app back beside a reinstalled copy: bundle in
+        // one place and data in another would be worse than not restoring.
+        if op.state == .holding || op.state == .committed {
+            let occupied = occupiedOriginals(try ledger.items(opID))
+            if !occupied.isEmpty {
+                throw KhoError.destinationOccupied(occupied.joined(separator: "\n")
+                    + "\nHãy xoá hoặc đổi tên bản đang nằm ở đó (ví dụ app vừa cài lại) rồi thử lại.")
+            }
+        }
         switch op.state {
         case .holding, .undoing: try service.undo(opID: opID, isCancelled: isCancelled)
         case .committed, .restoring: try service.restore(opID: opID, progress: progress, isCancelled: isCancelled)
         default: throw KhoError.invalidState("Thao tác không ở vùng chờ hay trên Kho")
         }
-        guard let bundle = try ledger.items(opID).first(where: { $0.purpose == .appBundle })?.originalURL else {
-            return AppRestoreResult(signatureBroken: false)
+        let items = try ledger.items(opID)
+        let relocated = items.compactMap { item in
+            item.restoredPath.flatMap { $0 == item.originalPath ? nil : $0 }
         }
+        guard let bundleItem = items.first(where: { $0.purpose == .appBundle }) else {
+            return AppRestoreResult(signatureBroken: false, relocated: relocated)
+        }
+        // Check the bundle that actually came back, wherever it landed.
+        let bundle = bundleItem.restoredPath.map(URL.init(fileURLWithPath:)) ?? bundleItem.originalURL
         LSRegisterURL(bundle as CFURL, true)
         let before = Int32((try? ledger.setting("codesign.\(op.uid)")) ?? nil ?? "") ?? -1
         let after = await verifySignature(bundle)
@@ -168,6 +191,6 @@ public enum AppArchiver {
             ledger.log(action: "Chữ ký app sau khi lấy về không hợp lệ — đừng mở app, hãy cài lại",
                        path: bundle.path, detail: nil, ok: false)
         }
-        return AppRestoreResult(signatureBroken: broken)
+        return AppRestoreResult(signatureBroken: broken, relocated: relocated)
     }
 }

@@ -75,7 +75,13 @@ public final class OffloadService: Sendable {
     func deleteOnKho(_ op: Operation, relPath: String?) throws {
         guard let relPath else { return }
         if let layout = khoFor(op) {
-            try FileOps.removeTree(layout.absoluteURL(relative: relPath))
+            do {
+                try FileOps.removeTree(layout.absoluteURL(relative: relPath))
+            } catch {
+                // Retried whenever this Kho is mounted again.
+                try? ledger.addPendingCleanup(khoUUID: op.khoUUID, khoRelPath: relPath)
+                throw error
+            }
         } else {
             try ledger.addPendingCleanup(khoUUID: op.khoUUID, khoRelPath: relPath)
         }
@@ -174,8 +180,6 @@ public final class OffloadService: Sendable {
             do {
                 try deleteOnKho(op, relPath: item.khoRelPath)
             } catch {
-                // Retried whenever this Kho is mounted again.
-                if let rel = item.khoRelPath { try? ledger.addPendingCleanup(khoUUID: op.khoUUID, khoRelPath: rel) }
                 ledger.log(action: "Không xoá được bản trên Kho, sẽ thử lại", path: item.khoRelPath,
                            detail: error.localizedDescription, ok: false)
             }
@@ -236,12 +240,25 @@ public final class OffloadService: Sendable {
                      isCancelled: @escaping @Sendable () -> Bool) throws -> CopyReport {
         let box = PathBox()
         let ledger = self.ledger
+        // A partial copy on the Kho is also recorded by Kho identity, so it is found again even
+        // if the Kho is unplugged mid-copy or mounts at another path later.
+        let kho = mountedKho()
+        let khoRel: @Sendable (URL) -> String? = { p in kho.flatMap { $0.layout.relativePath(p) } }
         defer {
-            if let p = box.value.withLock({ $0 }) { try? ledger.removePartial(p) }
+            if let path = box.value.withLock({ $0 }) {
+                let p = URL(fileURLWithPath: path)
+                // Gone with its parent still there: really removed. Parent missing: the volume
+                // went away, keep the records for the next mount.
+                if !FileOps.exists(p) && FileOps.exists(p.deletingLastPathComponent()) {
+                    try? ledger.removePartial(path)
+                    if let kho, let rel = khoRel(p) { try? ledger.removePendingCleanup(khoUUID: kho.uuid, khoRelPath: rel) }
+                }
+            }
         }
         return try copier.copy(from: src, to: dst, onPartialCreated: { p in
             box.value.withLock { $0 = p.path }
-            try? ledger.addPartial(p.path)
+            try ledger.addPartial(p.path)
+            if let kho, let rel = khoRel(p) { try ledger.addPendingCleanup(khoUUID: kho.uuid, khoRelPath: rel) }
         }, progress: progress, isCancelled: isCancelled)
     }
 
@@ -317,6 +334,9 @@ public final class OffloadService: Sendable {
             for (i, p) in planned.enumerated() {
                 let dst = uniqueSibling(try kho.layout.absoluteURL(relative: p.request.khoRelPath), suffix: nil)
                 guard let rel = kho.layout.relativePath(dst) else { throw KhoError.blocked(dst.path) }
+                // The Kho may have been unplugged after an earlier item; never copy into whatever
+                // now sits at its mount path.
+                guard FileOps.exists(kho.layout.identityFile) else { throw KhoError.khoOffline }
                 // Record the destination before copying: a crash right after the copier's final
                 // rename must still leave the Kho copy findable for cleanup.
                 try ledger.updateItem(itemIDs[i], khoRelPath: .some(rel))
@@ -429,7 +449,23 @@ public final class OffloadService: Sendable {
 
     public func drainPendingCleanup() {
         guard let kho = mountedKho() else { return }
+        let ops = (try? ledger.operations()) ?? []
+        func owners(_ states: Set<OperationState>) -> [String] {
+            ops.filter { states.contains($0.state) && $0.khoUUID == kho.uuid }
+                .flatMap { (try? ledger.items($0.id)) ?? [] }.compactMap(\.khoRelPath)
+        }
+        // The Kho copy is the data itself for these: a stale cleanup row must never touch it.
+        let owned = owners([.holding, .committed])
+        // These are still changing; decide once they settle.
+        let busy = owners([.copying, .moving, .undoing, .restoring, .committing])
+        func overlaps(_ a: String, _ b: String) -> Bool { a == b || a.hasPrefix(b + "/") || b.hasPrefix(a + "/") }
         for row in (try? ledger.pendingCleanup(khoUUID: kho.uuid)) ?? [] {
+            if busy.contains(where: { overlaps($0, row.khoRelPath) }) { continue }
+            if owned.contains(where: { overlaps($0, row.khoRelPath) }) {
+                try? ledger.removePendingCleanup(row.id)
+                ledger.log(action: "Bỏ mục dọn trùng dữ liệu đang dùng", path: row.khoRelPath, detail: nil, ok: true)
+                continue
+            }
             do {
                 try FileOps.removeTree(kho.layout.absoluteURL(relative: row.khoRelPath))
                 try? ledger.removePendingCleanup(row.id)
@@ -602,7 +638,8 @@ public final class OffloadService: Sendable {
                     if let held { try FileOps.removeTree(held) }
                 } else if let held {
                     try removeOurSymlink(at: item.originalURL)
-                    try holding.release(held, to: item.originalURL, expectedIno: item.origIno)
+                    let back = try holding.release(held, to: item.originalURL, expectedIno: item.origIno)
+                    if !FileOps.same(back, item.originalURL) { try ledger.updateItem(item.id, restoredPath: .some(back.path)) }
                 }
                 try ledger.updateItem(item.id, released: true)
             }
@@ -632,7 +669,7 @@ public final class OffloadService: Sendable {
                 try deleteOnKho(op, relPath: item.khoRelPath)
                 if let rel = item.khoRelPath { removed.append(rel) }
             } catch {
-                ledger.log(action: "Không xoá được bản trên Kho", path: item.khoRelPath,
+                ledger.log(action: "Không xoá được bản trên Kho, sẽ thử lại", path: item.khoRelPath,
                            detail: error.localizedDescription, ok: false)
             }
         }
@@ -688,7 +725,7 @@ public final class OffloadService: Sendable {
                 removed.append(rel)
                 if let mounted = khoFor(op) { removeEmptyParents(of: try mounted.absoluteURL(relative: rel), layout: mounted) }
             } catch {
-                ledger.log(action: "Không xoá được bản trên Kho", path: rel,
+                ledger.log(action: "Không xoá được bản trên Kho, sẽ thử lại", path: rel,
                            detail: error.localizedDescription, ok: false)
             }
         }
