@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2A6E72"/>
+      <stop offset="1" stop-color="#103539"/>
+    </linearGradient>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FBF6EC"/>
+      <stop offset="1" stop-color="#E6DCCB"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC25A"/>
+      <stop offset="1" stop-color="#F08C21"/>
+    </linearGradient>
+    <linearGradient id="inside" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#071C1F"/>
+      <stop offset="1" stop-color="#0F2F33"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- macOS icon body -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+
+  <!-- warehouse (Kho) -->
+  <g filter="url(#shadow)">
+    <path d="M512 300 L846 448 L846 474 L178 474 L178 448 Z" fill="url(#wall)"
+          stroke="#FBF6EC" stroke-width="36" stroke-linejoin="round"/>
+    <rect x="236" y="440" width="552" height="398" rx="26" fill="url(#wall)"/>
+  </g>
+  <!-- roof ridge line -->
+  <path d="M218 470 L806 470" stroke="#D8CCB6" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- door opening -->
+  <rect x="332" y="566" width="360" height="272" fill="url(#inside)"/>
+  <!-- rolled-up shutter -->
+  <rect x="318" y="548" width="388" height="66" rx="14" fill="#CDBFA6"/>
+  <path d="M338 571 H686 M338 593 H686" stroke="#B3A387" stroke-width="7" stroke-linecap="round"/>
+
+  <!-- arrow in: data stored on the Kho -->
+  <path d="M446 646 V760" stroke="#F59A2A" stroke-width="48" stroke-linecap="round"/>
+  <path d="M392 724 L446 792 L500 724" fill="none" stroke="#F59A2A" stroke-width="48"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- arrow out (dotted): a link stays behind, bring it back any time -->
+  <g fill="#FBF6EC"><circle cx="584" cy="712" r="15"/><circle cx="584" cy="754" r="15"/><circle cx="584" cy="796" r="15"/></g>
+  <path d="M542 690 L584 640 L626 690" fill="none" stroke="#FBF6EC" stroke-width="30"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
