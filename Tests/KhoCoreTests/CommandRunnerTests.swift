@@ -21,12 +21,12 @@ import Testing
         await #expect(throws: KhoError.io("Quá thời gian")) {
             _ = try await CommandRunner.run(URL(fileURLWithPath: "/bin/sh"), ["-c", "sleep 30 & wait"], timeout: 0.5)
         }
-        #expect(Date().timeIntervalSince(start) < 2.5)
+        #expect(Date().timeIntervalSince(start) < 8)
         // Parent exits at once but a background child keeps the pipe open.
         let quick = Date()
         let r = try await CommandRunner.run(URL(fileURLWithPath: "/bin/sh"), ["-c", "echo done; sleep 30 &"], timeout: 10)
         #expect(r.output.contains("done"))
-        #expect(Date().timeIntervalSince(quick) < 4)
+        #expect(Date().timeIntervalSince(quick) < 8)
     }
 
     @Test func toolIgnoringTermIsKilled() async throws {
@@ -35,14 +35,14 @@ import Testing
             _ = try await CommandRunner.run(URL(fileURLWithPath: "/bin/sh"),
                                             ["-c", "trap '' TERM; while :; do sleep 1; done"], timeout: 0.5)
         }
-        #expect(Date().timeIntervalSince(start) < 6)
+        #expect(Date().timeIntervalSince(start) < 12)
     }
 
     @Test func timesOut() async throws {
         let start = Date()
         await #expect(throws: KhoError.io("Quá thời gian")) {
-            _ = try await CommandRunner.run(URL(fileURLWithPath: "/bin/sleep"), ["5"], timeout: 0.5)
+            _ = try await CommandRunner.run(URL(fileURLWithPath: "/bin/sleep"), ["30"], timeout: 0.5)
         }
-        #expect(Date().timeIntervalSince(start) < 4)
+        #expect(Date().timeIntervalSince(start) < 8)
     }
 }

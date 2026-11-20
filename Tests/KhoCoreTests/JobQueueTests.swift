@@ -60,7 +60,8 @@ import Testing
                 try await q.run(title: "inner") { _ in 1 }
             }
         }
-        #expect(clock.now - began < .seconds(1))
+        // A nested call that waited for the outer job would never return; this only proves it did not wait.
+        #expect(clock.now - began < .seconds(5))
     }
 
     @Test func suspendHoldsNewJobs() async throws {

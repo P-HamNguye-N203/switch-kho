@@ -59,28 +59,33 @@ public enum InUseCheck {
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = FileHandle.nullDevice
+        // One reader owns the pipe and reads to end-of-file, so no output can be lost between
+        // the tool exiting and the result being taken (a lost PID would read as "closed").
         let output = Mutex(Data())
-        pipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            if chunk.isEmpty { handle.readabilityHandler = nil } else { output.withLock { $0.append(chunk) } }
+        let readDone = DispatchSemaphore(value: 0)
+        let reader = pipe.fileHandleForReading
+        Thread.detachNewThread {
+            let data = (try? reader.readToEnd()) ?? Data()
+            output.withLock { $0 = data }
+            readDone.signal()
         }
         let done = DispatchSemaphore(value: 0)
         p.terminationHandler = { _ in done.signal() }
         do { try p.run() } catch {
-            pipe.fileHandleForReading.readabilityHandler = nil
+            try? pipe.fileHandleForWriting.close()
             return .unknown
         }
+        // Our copy of the write end must be closed, or the reader never sees end-of-file.
+        try? pipe.fileHandleForWriting.close()
         if done.wait(timeout: .now() + timeout) == .timedOut {
             let pid = p.processIdentifier
-            DispatchQueue.global().asyncAfter(deadline: .now() + 3) { kill(pid, SIGKILL) }
+            CommandRunner.timerQueue.asyncAfter(deadline: .now() + 3) { kill(pid, SIGKILL) }
             p.terminate()
-            pipe.fileHandleForReading.readabilityHandler = nil
             return .unknown
         }
-        // Collect what is still buffered after exit.
-        pipe.fileHandleForReading.readabilityHandler = nil
-        let rest = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
-        let all = output.withLock { $0 } + rest
+        // lsof has exited; a child still holding the pipe would be unusual, so wait briefly.
+        if readDone.wait(timeout: .now() + 2) == .timedOut { return .unknown }
+        let all = output.withLock { $0 }
         return String(decoding: all, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .closed : .open
     }
 }

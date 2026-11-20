@@ -14,6 +14,10 @@ public enum CommandRunner {
         let eof = Mutex(false)
     }
 
+    /// Timeouts and hard kills run here, not on a global queue: global queues are capped at
+    /// the core count, so threads blocked elsewhere could delay a timeout indefinitely.
+    static let timerQueue = DispatchQueue(label: "switchkho.command-timeouts")
+
     public static func run(_ exe: URL, _ args: [String], timeout: TimeInterval) async throws -> CommandResult {
         let process = Process()
         process.executableURL = exe
@@ -43,13 +47,13 @@ public enum CommandRunner {
                 c.resume(throwing: KhoError.io("Không chạy được \(exe.lastPathComponent): \(error.localizedDescription)"))
                 return
             }
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+            timerQueue.asyncAfter(deadline: .now() + timeout) {
                 if process.isRunning {
                     box.timedOut.withLock { $0 = true }
                     let pid = process.processIdentifier
                     // A tool that ignores SIGTERM must not hold the job queue forever; schedule
                     // the hard kill first so a stuck child lookup cannot prevent it.
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
+                    timerQueue.asyncAfter(deadline: .now() + 3) {
                         if process.isRunning { kill(pid, SIGKILL) }
                     }
                     killChildren(of: pid)
