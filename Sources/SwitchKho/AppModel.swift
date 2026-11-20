@@ -50,8 +50,21 @@ final class AppModel {
     var holdingRows: [HoldingRow] = []
     var holdingBytes: Int64 = 0
     var lastError: String?
+    /// Short success message shown at the bottom of the window, cleared after a few seconds.
+    var notice: String?
     var folderScan: ScanResult?
-    var staleDays = 180
+    var folderPath: [ScanNode] = []
+    var staleDays = 180 { didSet { scheduleStaleFiles() } }
+    /// Computed off the main thread: needs Spotlight per file.
+    var staleList: [FileEntry] = []
+    /// Bundle IDs of apps found running at the last check (one `ps` call for all apps).
+    var runningBundles: Set<String> = []
+    var orphanSizes: [String: Int64] = [:]
+    /// Operations with a queued or running job, so their buttons stay disabled meanwhile.
+    var busyOps: Set<Int64> = []
+    private var staleTask: Task<Void, Never>?
+    private var noticeTask: Task<Void, Never>?
+    private var holdingBytesGeneration = 0
     var hasFullDiskAccess = true
     var hasTimeMachine: Bool?
 
@@ -76,6 +89,25 @@ final class AppModel {
     }
 
     var runningJob: JobSnapshot? { jobs.first { $0.state == .running } }
+
+    static let scanAppsTitle = "Quét ứng dụng"
+    static let scanFolderPrefix = "Quét thư mục "
+
+    func hasActiveJob(_ matches: (String) -> Bool) -> Bool {
+        jobs.contains { ($0.state == .running || $0.state == .queued) && matches($0.title) }
+    }
+
+    var isScanningApps: Bool { hasActiveJob { $0 == Self.scanAppsTitle } }
+    var isScanningFolder: Bool { hasActiveJob { $0.hasPrefix(Self.scanFolderPrefix) } }
+
+    func notify(_ message: String) {
+        notice = message
+        noticeTask?.cancel()
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            if !Task.isCancelled { self?.notice = nil }
+        }
+    }
 
     // MARK: Startup
 
@@ -236,9 +268,27 @@ final class AppModel {
         }
     }
 
-    func setRecoveryReport(_ r: RecoveryReport) { recoveryReport = r; refreshOperations() }
-    func setAppDataMap(_ m: AppDataMap) { appDataMap = m }
-    func setFolderScan(_ r: ScanResult) { folderScan = r }
+    func setRecoveryReport(_ r: RecoveryReport) {
+        recoveryReport = r
+        refreshOperations()
+        let holding = self.holding, names = r.orphanHoldingDirs
+        Task.detached { [weak self] in
+            let sizes = Dictionary(uniqueKeysWithValues: names.map {
+                ($0, DirectoryScanner.size(of: holding.root.appendingPathComponent($0)))
+            })
+            await self?.setOrphanSizes(sizes)
+        }
+    }
+
+    func setOrphanSizes(_ sizes: [String: Int64]) { orphanSizes = sizes }
+    func setAppDataMap(_ m: AppDataMap, running: Set<String>) { appDataMap = m; runningBundles = running }
+    func setRunningBundles(_ r: Set<String>) { runningBundles = r }
+    func setFolderScan(_ r: ScanResult) {
+        folderScan = r
+        folderPath = []
+        scheduleStaleFiles()
+    }
+    func setStaleList(_ list: [FileEntry]) { staleList = list }
 
     func enqueueCommitDue() {
         let service = offloadService
@@ -269,25 +319,31 @@ final class AppModel {
     }
 
     /// Runs a state-changing operation through the queue, then backs up the ledger.
-    func runOperation(_ title: String, _ body: @escaping @Sendable (OffloadService, JobContext) throws -> Void) {
+    func runOperation(_ title: String, opID: Int64, done: String,
+                      _ body: @escaping @Sendable (OffloadService, JobContext) throws -> Void) {
         let service = offloadService
+        busyOps.insert(opID)
         Task {
             do {
                 try await jobQueue.run(title: title) { ctx in try body(service, ctx) }
+                notify(done)
+            } catch is CancellationError {
+                notify("Đã huỷ: \(title)")
             } catch {
-                lastError = error.localizedDescription
+                lastError = "\(title): \(error.localizedDescription)"
             }
+            busyOps.remove(opID)
             backupLedgerIfSafe()
             refreshOperations()
         }
     }
 
     func undo(_ opID: Int64) {
-        runOperation("Hoàn tác #\(opID)") { s, ctx in try s.undo(opID: opID, isCancelled: { ctx.isCancelled }) }
+        runOperation("Hoàn tác #\(opID)", opID: opID, done: "Đã hoàn tác #\(opID), dữ liệu đã về chỗ cũ") { s, ctx in try s.undo(opID: opID, isCancelled: { ctx.isCancelled }) }
     }
 
     func commitNow(_ opID: Int64) {
-        runOperation("Xoá vùng chờ #\(opID)") { s, ctx in
+        runOperation("Xoá vùng chờ #\(opID)", opID: opID, done: "Đã xoá vùng chờ #\(opID)") { s, ctx in
             try s.commitNow(opID: opID, progress: { p in
                 ctx.report(fraction: p.bytesTotal > 0 ? Double(p.bytesDone) / Double(p.bytesTotal) : 0,
                            detail: p.currentName)
@@ -298,7 +354,7 @@ final class AppModel {
     func retry(_ row: HoldingRow) {
         switch row.op.state {
         case .restoring, .committed:
-            runOperation("Lấy về #\(row.op.id)") { s, _ in try s.restore(opID: row.op.id) }
+            runOperation("Lấy về #\(row.op.id)", opID: row.op.id, done: "Đã lấy về #\(row.op.id)") { s, _ in try s.restore(opID: row.op.id) }
         case .undoing:
             undo(row.op.id)
         default:
@@ -307,7 +363,8 @@ final class AppModel {
     }
 
     func acceptKhoCopy(_ opID: Int64) {
-        runOperation("Chấp nhận bản trên Kho #\(opID)") { s, ctx in
+        runOperation("Chấp nhận bản trên Kho #\(opID)", opID: opID,
+                     done: "Đã chấp nhận bản trên Kho cho #\(opID)") { s, ctx in
             try s.acceptKhoCopy(opID: opID, isCancelled: { ctx.isCancelled })
         }
     }
@@ -332,7 +389,17 @@ final class AppModel {
                               bytes: items.reduce(0) { $0 + ($1.allocated ?? 0) },
                               overdue: op.state == .holding && (op.holdingUntil ?? .distantFuture) <= now)
         }
-        holdingBytes = holding.pendingBytes()
+        // Walking the holding area can take a while; never on the main thread.
+        holdingBytesGeneration += 1
+        let generation = holdingBytesGeneration, holding = self.holding
+        Task.detached { [weak self] in
+            let bytes = holding.pendingBytes()
+            await self?.setHoldingBytes(bytes, generation: generation)
+        }
+    }
+
+    func setHoldingBytes(_ bytes: Int64, generation: Int) {
+        if generation == holdingBytesGeneration { holdingBytes = bytes }
     }
 
     func reveal(_ row: HoldingRow) {
@@ -347,16 +414,14 @@ final class AppModel {
         NSWorkspace.shared.activateFileViewerSelecting([holding.root.appendingPathComponent(name)])
     }
 
-    func orphanSize(_ name: String) -> Int64 {
-        DirectoryScanner.size(of: holding.root.appendingPathComponent(name))
-    }
+    func orphanSize(_ name: String) -> Int64? { orphanSizes[name] }
 
     // MARK: Analyzer
 
     func scanApps() {
         let ledger = self.ledger, appIndex = self.appIndex
         Task {
-            await jobQueue.enqueue(title: "Quét ứng dụng", cancellable: true) { [weak self] ctx in
+            await jobQueue.enqueue(title: Self.scanAppsTitle, cancellable: true) { [weak self] ctx in
                 ctx.report(fraction: 0.05, detail: "Đọc danh sách ứng dụng")
                 let apps = AppCatalog.scan()
                 appIndex.value.withLock { $0 = Dictionary(apps.map { ($0.bundleID, $0.url) }, uniquingKeysWith: { a, _ in a }) }
@@ -367,7 +432,9 @@ final class AppModel {
                                            uniquingKeysWith: { a, _ in a })
                 let map = AppDataMapper.map(home: FileManager.default.homeDirectoryForCurrentUser,
                                             apps: apps, overrides: overrides)
-                await self?.setAppDataMap(map)
+                ctx.report(fraction: 0.95, detail: "Kiểm ứng dụng đang chạy")
+                let running = Self.runningBundleIDs(map.footprints.map(\.app))
+                await self?.setAppDataMap(map, running: running)
             }
         }
     }
@@ -377,13 +444,28 @@ final class AppModel {
         scanApps()
     }
 
-    func isRunning(_ app: InstalledApp) -> Bool {
-        RunningProcesses.isRunning(bundleID: app.bundleID, appURL: app.url)
+    func isRunning(_ app: InstalledApp) -> Bool { runningBundles.contains(app.bundleID) }
+
+    /// One process listing for all apps; safe to call off the main thread.
+    nonisolated static func runningBundleIDs(_ apps: [InstalledApp]) -> Set<String> {
+        let paths = RunningProcesses.executablePaths()
+        return Set(apps.filter { app in
+            !NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleID).isEmpty
+                || RunningProcesses.isRunning(appURL: app.url, paths: paths)
+        }.map(\.bundleID))
+    }
+
+    func refreshRunning() {
+        guard let apps = appDataMap?.footprints.map(\.app) else { return }
+        Task.detached { [weak self] in
+            let running = Self.runningBundleIDs(apps)
+            await self?.setRunningBundles(running)
+        }
     }
 
     func scanFolder(_ url: URL) {
         Task {
-            await jobQueue.enqueue(title: "Quét \(url.lastPathComponent)", cancellable: true) { [weak self] ctx in
+            await jobQueue.enqueue(title: Self.scanFolderPrefix + url.lastPathComponent, cancellable: true) { [weak self] ctx in
                 let result = try DirectoryScanner().scan(url, progress: { n in
                     ctx.report(fraction: 0, detail: "\(n) file")
                 }, isCancelled: { ctx.isCancelled })
@@ -392,9 +474,19 @@ final class AppModel {
         }
     }
 
-    func staleFiles() -> [FileEntry] {
-        guard let folderScan else { return [] }
-        return DirectoryScanner.staleFiles(in: folderScan, days: staleDays, minSize: 10 << 20)
+    /// Recomputes the stale list in the background, waiting briefly so stepper clicks coalesce.
+    func scheduleStaleFiles() {
+        staleTask?.cancel()
+        guard let scan = folderScan else { staleList = []; return }
+        let days = staleDays
+        staleTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            if Task.isCancelled { return }
+            let list = await Task.detached {
+                DirectoryScanner.staleFiles(in: scan, days: days, minSize: 10 << 20)
+            }.value
+            if !Task.isCancelled { self?.setStaleList(list) }
+        }
     }
 
     /// Writes the space budget table as Markdown to a file the user picks.
@@ -406,7 +498,7 @@ final class AppModel {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "space-budget.md"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let stale = staleFiles().reduce(Int64(0)) { $0 + $1.size }
+        let stale = staleList.reduce(Int64(0)) { $0 + $1.size }
         Task {
             do {
                 try await jobQueue.run(title: "Xuất ngân sách dung lượng") { _ in
@@ -417,8 +509,9 @@ final class AppModel {
                     let lines = SpaceBudget.estimate(map: map, caches: caches, personalStale: stale, packageCache: pkg)
                     try SpaceBudget.markdown(lines).write(to: url, atomically: true, encoding: .utf8)
                 }
+                notify("Đã xuất ngân sách ra \(url.lastPathComponent)")
             } catch {
-                lastError = error.localizedDescription
+                lastError = "Xuất ngân sách: \(error.localizedDescription)"
             }
         }
     }

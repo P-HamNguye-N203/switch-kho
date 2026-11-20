@@ -17,8 +17,14 @@ struct SwitchKhoApp: App {
             } detail: {
                 detail(selection ?? .overview)
             }
-            .safeAreaInset(edge: .bottom) { JobStatusBar() }
+            .safeAreaInset(edge: .bottom, spacing: 0) { BottomStatusArea() }
             .environment(model)
+        }
+        .commands {
+            CommandGroup(after: .importExport) {
+                Button("Xuất ngân sách dung lượng…") { model.exportBudget() }
+                    .keyboardShortcut("e", modifiers: [.command, .option])
+            }
         }
 
         MenuBarExtra("Switch Kho", systemImage: "externaldrive.fill") {

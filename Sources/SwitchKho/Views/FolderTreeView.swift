@@ -4,8 +4,7 @@ import SwiftUI
 
 struct FolderTreeView: View {
     @Environment(AppModel.self) private var model
-    @State private var path: [ScanNode] = []
-    @State private var selection: ScanNode.ID?
+    @State private var selection: Set<ScanNode.ID> = []
 
     var body: some View {
         @Bindable var model = model
@@ -13,68 +12,89 @@ struct FolderTreeView: View {
             HStack {
                 Button("Chọn thư mục…") { choose() }
                 Button("Quét thư mục nhà") { model.scanFolder(FileManager.default.homeDirectoryForCurrentUser) }
+                if model.isScanningFolder {
+                    ProgressView().controlSize(.small)
+                    Text("Đang quét…").font(.callout).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Stepper("Lâu không dùng: \(model.staleDays) ngày", value: $model.staleDays, in: 30...1000, step: 30)
+                    .monospacedDigit()
                     .frame(maxWidth: 260)
             }
+            .disabled(model.isScanningFolder)
             if let scan = model.folderScan {
-                let current = path.last ?? scan.root
+                let current = model.folderPath.last ?? scan.root
                 breadcrumb(scan.root)
                 HSplitView {
                     List(current.children, selection: $selection) { node in
                         HStack {
                             Image(systemName: node.isDirectory ? "folder" : "doc")
-                            Text(node.name)
+                            Text(node.name).lineLimit(1).truncationMode(.middle)
                             Spacer()
                             Text(ByteFormat.string(node.size)).monospacedDigit().foregroundStyle(.secondary)
                         }
-                        .contentShape(Rectangle())
-                        .onTapGesture(count: 2) { if node.isDirectory { path.append(node) } }
-                        .contextMenu { Button("Hiện trong Finder") { NSWorkspace.shared.activateFileViewerSelecting([node.url]) } }
+                    }
+                    .contextMenu(forSelectionType: ScanNode.ID.self) { ids in
+                        Button("Hiện trong Finder") { reveal(ids, in: current) }
+                    } primaryAction: { ids in
+                        // Double-click or Return opens a folder.
+                        if let node = current.children.first(where: { ids.contains($0.id) && $0.isDirectory }) {
+                            model.folderPath.append(node)
+                            selection = []
+                        }
                     }
                     .frame(minWidth: 320)
                     VStack(alignment: .leading) {
                         Text("Lớn nhất").font(.headline)
-                        List(scan.largestFiles.prefix(50)) { f in
-                            fileRow(f.url, f.size)
-                        }
+                        List(scan.largestFiles.prefix(50)) { f in fileRow(f.url, f.size) }
                         Text("Lâu không dùng (\(model.staleDays) ngày)").font(.headline)
-                        List(model.staleFiles().prefix(50)) { f in
-                            fileRow(f.url, f.size)
+                        if model.staleList.isEmpty {
+                            Text("Không có file từ 10 MB trở lên lâu không dùng.")
+                                .font(.callout).foregroundStyle(.secondary).padding(.vertical, 8)
+                        } else {
+                            List(model.staleList.prefix(50)) { f in fileRow(f.url, f.size) }
                         }
                     }
                     .frame(minWidth: 280)
                 }
                 if scan.unreadable > 0 {
-                    Text("\(scan.unreadable) mục không đọc được (cần Full Disk Access?)")
-                        .font(.caption).foregroundStyle(.orange)
+                    StatusLabel("\(scan.unreadable) mục không đọc được (cần Full Disk Access?)",
+                                systemImage: "lock.fill")
                 }
             } else {
                 ContentUnavailableView("Chưa quét", systemImage: "folder.badge.questionmark",
                                        description: Text("Chọn một thư mục để xem dung lượng theo cây."))
             }
         }
-        .onChange(of: model.folderScan?.root.url) { path = [] }
     }
 
     private func breadcrumb(_ root: ScanNode) -> some View {
         HStack(spacing: 4) {
-            Button(root.name) { path = [] }.buttonStyle(.link)
-            ForEach(Array(path.enumerated()), id: \.element.id) { i, node in
-                Text("›").foregroundStyle(.secondary)
-                Button(node.name) { path = Array(path.prefix(i + 1)) }.buttonStyle(.link)
+            Button(root.name) { model.folderPath = [] }.buttonStyle(.link)
+            ForEach(Array(model.folderPath.enumerated()), id: \.element.id) { i, node in
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Button(node.name) { model.folderPath = Array(model.folderPath.prefix(i + 1)) }.buttonStyle(.link)
             }
         }
         .font(.callout)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Đường dẫn")
     }
 
     private func fileRow(_ url: URL, _ size: Int64) -> some View {
         HStack {
-            Text(url.lastPathComponent).lineLimit(1)
+            Text(url.lastPathComponent).lineLimit(1).truncationMode(.middle)
             Spacer()
             Text(ByteFormat.string(size)).monospacedDigit().foregroundStyle(.secondary)
         }
         .help(url.path)
+        .contextMenu { Button("Hiện trong Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) } }
+    }
+
+    private func reveal(_ ids: Set<ScanNode.ID>, in node: ScanNode) {
+        let urls = node.children.filter { ids.contains($0.id) }.map(\.url)
+        if !urls.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(urls) }
     }
 
     private func choose() {

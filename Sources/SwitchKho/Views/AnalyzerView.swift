@@ -6,16 +6,17 @@ struct AnalyzerView: View {
     enum Tab: String, CaseIterable { case apps = "Theo ứng dụng", folders = "Theo thư mục" }
 
     @Environment(AppModel.self) private var model
-    @State private var tab = Tab.apps
+    @SceneStorage("analyzer.tab") private var tab = Tab.apps
     @State private var assigning: AppDataFolder?
     @State private var assignTo = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker("", selection: $tab) {
+            Picker("Cách xem", selection: $tab) {
                 ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
             .frame(maxWidth: 360)
 
             switch tab {
@@ -31,7 +32,16 @@ struct AnalyzerView: View {
     @ViewBuilder
     private var appsTab: some View {
         HStack {
-            Button("Quét") { model.scanApps() }
+            Button(model.appDataMap == nil ? "Quét" : "Quét lại") { model.scanApps() }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(model.isScanningApps)
+            if model.isScanningApps {
+                ProgressView().controlSize(.small)
+                Text("Đang quét…").font(.callout).foregroundStyle(.secondary)
+            }
+            Button("Kiểm lại app đang chạy") { model.refreshRunning() }
+                .disabled(model.appDataMap == nil)
+            Spacer()
             Group {
                 Button("Dọn cache") {}
                 Button("Cất cả app") {}
@@ -39,43 +49,39 @@ struct AnalyzerView: View {
             }
             .disabled(true)
             .help("Có ở bản sau")
-            Text("Có ở bản sau").font(.caption).foregroundStyle(.secondary)
-            Spacer()
-            Menu("Thêm") {
-                if NSEvent.modifierFlags.contains(.option) {
-                    Button("Xuất ngân sách…") { model.exportBudget() }
-                }
-                Button("Quét lại") { model.scanApps() }
-            }
-            .frame(maxWidth: 100)
+            Text("Có ở bản sau").font(.callout).foregroundStyle(.secondary)
         }
         if let map = model.appDataMap {
             AppFootprintTable(map: map)
             if map.unreadable > 0 {
-                Text("\(map.unreadable) thư mục không đọc được (cần Full Disk Access?)")
-                    .font(.caption).foregroundStyle(.orange)
+                StatusLabel("\(map.unreadable) thư mục không đọc được (cần Full Disk Access?)", systemImage: "lock.fill")
             }
             GroupBox("Không rõ app (\(map.unassigned.count))") {
                 List(map.unassigned) { f in
                     HStack {
-                        Text("\(f.area.rawValue)/\(f.url.lastPathComponent)")
-                        if f.hasVMImage { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+                        Text("\(f.area.rawValue)/\(f.url.lastPathComponent)").lineLimit(1).truncationMode(.middle)
+                        if f.hasVMImage { VMImageBadge() }
                         Spacer()
                         Text(ByteFormat.string(f.allocated)).monospacedDigit().foregroundStyle(.secondary)
+                        Button("Gán…") { assignTo = ""; assigning = f }
+                            .buttonStyle(.borderless)
+                            .help("Gán thư mục này cho một ứng dụng")
                     }
+                    .help(f.url.path)
                     .contextMenu { Button("Gán cho ứng dụng…") { assignTo = ""; assigning = f } }
                 }
                 .frame(minHeight: 160)
             }
         } else {
             ContentUnavailableView("Chưa quét", systemImage: "app.dashed",
-                                   description: Text("Bấm Quét để đo dung lượng của từng ứng dụng."))
+                                   description: Text("Bấm Quét (⌘R) để đo dung lượng của từng ứng dụng."))
         }
     }
 
     private func assignSheet(_ folder: AppDataFolder) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Gán \(folder.url.lastPathComponent) cho ứng dụng").font(.headline)
+            Text(folder.url.path).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
             Picker("Ứng dụng", selection: $assignTo) {
                 Text("Chọn…").tag("")
                 ForEach(model.appDataMap?.footprints.map(\.app) ?? []) { app in
@@ -84,7 +90,7 @@ struct AnalyzerView: View {
             }
             HStack {
                 Spacer()
-                Button("Thôi") { assigning = nil }
+                Button("Thôi") { assigning = nil }.keyboardShortcut(.cancelAction)
                 Button("Gán") {
                     model.assign(folder, to: assignTo)
                     assigning = nil
@@ -94,6 +100,6 @@ struct AnalyzerView: View {
             }
         }
         .padding(20)
-        .frame(width: 420)
+        .frame(width: 440)
     }
 }
