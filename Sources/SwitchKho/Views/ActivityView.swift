@@ -14,21 +14,14 @@ struct ActivityView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Toggle("Chỉ lỗi", isOn: $errorsOnly).toggleStyle(.checkbox)
-                Spacer()
-                Button("Làm mới") { reload() }
-                Button("Hiện file DB trong Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([model.ledgerURL])
-                }
-            }
             let shown = errorsOnly ? entries.filter { !$0.entry.ok } : entries
             if shown.isEmpty {
                 ContentUnavailableView(errorsOnly ? "Không có lỗi" : "Chưa có hoạt động", systemImage: "list.bullet.rectangle")
+                    .fillCentered()
             } else {
                 Table(shown) {
                     TableColumn("Thời gian") { r in
-                        Text(r.entry.at.formatted(date: .numeric, time: .shortened)).monospacedDigit()
+                        Text(r.entry.at.vi(date: .numeric, time: .shortened)).monospacedDigit()
                     }
                     .width(130)
                     TableColumn("Thao tác") { r in Text(r.entry.action).lineLimit(1) }
@@ -51,8 +44,26 @@ struct ActivityView: View {
                 .textSelection(.enabled)
             }
         }
-        .padding(20)
+        .pageLayout()
         .navigationTitle("Nhật ký")
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("Hiện", selection: $errorsOnly) {
+                    Text("Tất cả").tag(false)
+                    Text("Chỉ lỗi").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button { NSWorkspace.shared.activateFileViewerSelecting([model.ledgerURL]) } label: {
+                    Label("Hiện sổ cái trong Finder", systemImage: "folder")
+                }
+                .help("Hiện file sổ cái trong Finder")
+                Button { reload() } label: { Label("Làm mới", systemImage: "arrow.clockwise") }
+                    .help("Đọc lại nhật ký")
+            }
+        }
         .onAppear { reload() }
         .onChange(of: model.operationsGeneration) { reload() }
     }

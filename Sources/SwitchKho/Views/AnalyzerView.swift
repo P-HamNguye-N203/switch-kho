@@ -17,50 +17,55 @@ struct AnalyzerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker("Cách xem", selection: $tab) {
-                ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 360)
-
             switch tab {
             case .apps: appsTab
             case .folders: FolderTreeView()
             }
         }
-        .padding(20)
+        .pageLayout()
         .navigationTitle("Phân tích")
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("Cách xem", selection: $tab) {
+                    ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            if tab == .apps {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button { model.refreshRunning() } label: { Label("Kiểm app đang chạy", systemImage: "app.badge.checkmark") }
+                        .help("Kiểm lại app nào đang chạy")
+                        .disabled(model.appDataMap == nil)
+                    Button { model.scanApps() } label: { Label("Quét", systemImage: "arrow.clockwise") }
+                        .help("Đo lại dung lượng từng ứng dụng (⌘R)")
+                        .keyboardShortcut("r", modifiers: .command)
+                        .disabled(model.isScanningApps)
+                }
+            }
+        }
         .sheet(item: $assigning) { folder in assignSheet(folder) }
     }
 
     @ViewBuilder
     private var appsTab: some View {
-        HStack {
-            Button(model.appDataMap == nil ? "Quét" : "Quét lại") { model.scanApps() }
-                .keyboardShortcut("r", modifiers: .command)
-                .disabled(model.isScanningApps)
-            if model.isScanningApps {
-                ProgressView().controlSize(.small)
-                Text("Đang quét…").font(.callout).foregroundStyle(.secondary)
+        if let app = selectedApp {
+            HStack(spacing: 8) {
+                Text(app.name).font(.headline).lineLimit(1)
+                Spacer()
+                Button("Dọn cache") { model.showCleanup(for: app.bundleID) }
+                    .help("Mở màn Dọn dẹp, lọc theo app này")
+                Button("Cất vào Kho…") { model.showApps(select: app.bundleID) }
+                    .help("Mở màn Ứng dụng với app này")
+                Button("Chạy từ Kho…") { model.showLive(select: app.bundleID) }
+                    .help("Dời dữ liệu Application Support của app lên Kho, chỗ cũ là liên kết")
             }
-            Button("Kiểm lại app đang chạy") { model.refreshRunning() }
-                .disabled(model.appDataMap == nil)
-            Spacer()
-            Button(selectedApp.map { "Dọn cache của \($0.name)" } ?? "Dọn cache") {
-                model.showCleanup(for: selectedApp?.bundleID)
-            }
-            .help("Mở màn Dọn dẹp, lọc theo app đang chọn trong bảng")
-            Button(selectedApp.map { "Cất \($0.name)…" } ?? "Cất cả app") {
-                model.showApps(select: selectedApp?.bundleID)
-            }
-            .help("Mở màn Ứng dụng với app đang chọn")
-            Button(selectedApp.map { "Chạy \($0.name) từ Kho…" } ?? "Chạy từ Kho") {
-                model.showLive(select: selectedApp?.bundleID)
-            }
-            .help("Dời dữ liệu Application Support của app lên Kho, chỗ cũ là liên kết")
+            .padding(10)
+            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
         }
-        if let map = model.appDataMap {
+        if model.appDataMap == nil && model.isScanningApps {
+            ProgressView("Đang đo dung lượng từng ứng dụng…").fillCentered()
+        } else if let map = model.appDataMap {
             AppFootprintTable(map: map, selection: $tableSelection)
             if map.unreadable > 0 {
                 StatusLabel("\(map.unreadable) thư mục không đọc được (cần Full Disk Access?)", systemImage: "lock.fill")
@@ -84,6 +89,7 @@ struct AnalyzerView: View {
         } else {
             ContentUnavailableView("Chưa quét", systemImage: "app.dashed",
                                    description: Text("Bấm Quét (⌘R) để đo dung lượng của từng ứng dụng."))
+                .fillCentered()
         }
     }
 

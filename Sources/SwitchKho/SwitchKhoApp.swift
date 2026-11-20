@@ -1,4 +1,5 @@
 import AppKit
+import KhoCore
 import SwiftUI
 
 @main
@@ -15,15 +16,15 @@ struct SwitchKhoApp: App {
     var body: some Scene {
         WindowGroup(id: "main") {
             NavigationSplitView {
-                List(SidebarSection.allCases, selection: $model.section) { section in
-                    Label(section.title, systemImage: section.systemImage)
-                        .tag(section)
-                }
-                .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+                Sidebar()
+                    .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
             } detail: {
                 detail(model.section ?? .overview)
+                    .safeAreaInset(edge: .bottom, spacing: 0) { BottomStatusArea() }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { BottomStatusArea() }
+            .frame(minWidth: 900, minHeight: 560)
+            .tint(.brand)
+            .environment(\.locale, VN.locale)
             .modifier(HideWhenLaunchedAtLogin())
             .environment(model)
         }
@@ -36,11 +37,15 @@ struct SwitchKhoApp: App {
 
         Settings {
             SettingsView()
+                .tint(.brand)
+                .environment(\.locale, VN.locale)
                 .environment(model)
         }
 
         MenuBarExtra {
             MenuBarView()
+                .tint(.brand)
+                .environment(\.locale, VN.locale)
                 .environment(model)
         } label: {
             Image(systemName: model.menuBarSymbol)
@@ -61,6 +66,51 @@ struct SwitchKhoApp: App {
         case .catalog: CatalogView()
         case .rules: RulesView()
         case .activity: ActivityView()
+        }
+    }
+}
+
+/// Grouped sections, each with a count or a warning when something there needs a look.
+private struct Sidebar: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        List(selection: $model.section) {
+            ForEach(SidebarSection.Group.allCases, id: \.self) { group in
+                let items = SidebarSection.allCases.filter { $0.group == group }
+                if group.rawValue.isEmpty {
+                    ForEach(items) { row($0) }
+                } else {
+                    Section(group.rawValue) { ForEach(items) { row($0) } }
+                }
+            }
+        }
+        .listStyle(.sidebar)
+    }
+
+    private func row(_ section: SidebarSection) -> some View {
+        Label(section.title, systemImage: section.systemImage)
+            .badge(badge(section))
+            .tag(section)
+    }
+
+    private func badge(_ section: SidebarSection) -> Text? {
+        switch section {
+        case .overview:
+            let n = model.holdingRows.filter { $0.op.error != nil || $0.op.needsReview }.count
+            return n > 0 ? Text("\(n)").foregroundColor(.orange) : nil
+        case .cleanup:
+            let n = model.visibleCleanupCandidates.filter { $0.estimatedBytes > 0 }.count
+            return n > 0 ? Text("\(n)") : nil
+        case .live:
+            let n = model.liveIssues.values.filter { LiveIntegrity.summary($0) != .ok && LiveIntegrity.summary($0) != .khoMissing }.count
+            return n > 0 ? Text("\(n)").foregroundColor(.orange) : nil
+        case .rules:
+            let n = model.rules.filter { $0.enabled }.count
+            return n > 0 ? Text("\(n)") : nil
+        default:
+            return nil
         }
     }
 }

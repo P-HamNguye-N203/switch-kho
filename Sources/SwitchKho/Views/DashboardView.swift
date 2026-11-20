@@ -7,104 +7,236 @@ struct DashboardView: View {
     @State private var pendingAdopt: VolumeInfo?
     @State private var askRestore: VolumeInfo?
 
+    /// Apps not opened for this many days are offered for archiving.
+    static let idleAppDays = 90
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if let notice = model.guardNotice {
-                    HStack {
-                        StatusLabel(notice, systemImage: "hand.raised.fill", tint: .red)
-                        Spacer()
-                        Button("Đã hiểu") { model.guardNotice = nil }
-                    }
-                    .padding(10)
-                    .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-                }
-                if model.liveIssues.values.contains(where: { $0.contains { $0 != .ok && $0 != .khoMissing } }) {
-                    HStack {
-                        StatusLabel("Một app chạy từ Kho có liên kết cần xử lý", systemImage: "exclamationmark.triangle.fill")
-                        Spacer()
-                        Button("Xem") { model.section = .live }
-                    }
-                }
-                internalCard
-                khoCard
-                holdingCard
-                warnings
+            VStack(alignment: .leading, spacing: 24) {
+                alerts
+                Card { hero }
+                suggestions
+                khoSection
+                holdingSection
+                environmentSection
             }
-            .padding(20)
-            .frame(maxWidth: 760)
+            .padding(24)
+            .frame(maxWidth: 960)
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("Tổng quan")
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    model.scanApps()
+                    model.scanCleanup()
+                } label: {
+                    Label("Quét", systemImage: "arrow.clockwise")
+                }
+                .help("Đo lại dung lượng app và tìm rác có thể dọn (⌘R)")
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(model.isScanningApps || model.isScanningCleanup)
+                if model.kho != nil {
+                    Button { model.eject() } label: { Label("Tháo Kho", systemImage: "eject") }
+                        .help("Dừng việc đang chép, thoát app chạy từ Kho rồi tháo ổ an toàn")
+                        .disabled(model.isEjecting)
+                }
+            }
+        }
+        .onAppear {
+            if model.appDataMap == nil && !model.isScanningApps { model.scanApps() }
+            if model.cleanupCandidates.isEmpty && !model.isScanningCleanup { model.scanCleanup() }
+        }
         .sheet(isPresented: $showHolding) { HoldingListView() }
         .confirmationDialog("Dùng ổ này làm Kho?", isPresented: Binding(presenting: $pendingAdopt),
                             presenting: pendingAdopt) { v in
-            Button("Dùng ổ này làm Kho") { model.adopt(v) }
+            Button("Dùng \(v.name) làm Kho") { model.adopt(v) }
             Button("Thôi", role: .cancel) {}
         } message: { v in
-            Text("Switch Kho sẽ ghi một dấu nhận vào \(v.name)/SwitchKho/.kho-id. Chỉ ổ có dấu này mới nhận dữ liệu được cất.")
+            Text("Switch Kho ghi một dấu nhận vào \(v.name)/SwitchKho/.kho-id. Chỉ ổ có dấu này mới nhận dữ liệu được cất.")
         }
         .confirmationDialog("Ổ này có sổ cái sao lưu", isPresented: Binding(presenting: $askRestore),
                             presenting: askRestore) { v in
+            Button("Khôi phục sổ cái từ ổ này") { Task { await model.restoreLedger(from: v) } }
             Button("Không, dùng làm Kho mới") {
                 // Let this dialog finish closing before the next one opens.
                 DispatchQueue.main.async { pendingAdopt = v }
             }
             Button("Thôi", role: .cancel) {}
         } message: { _ in
-            Text("Ổ này đã từng làm Kho và có bản sao lưu sổ cái. Khôi phục sổ cái từ ổ này có ở bản sau; hiện chỉ dùng được như Kho mới.")
+            Text("Ổ này đã từng làm Kho. Khôi phục sổ cái để thấy lại mọi thứ đã cất (Switch Kho sẽ thoát, hãy mở lại).")
         }
     }
 
-    private var internalCard: some View {
-        GroupBox("Ổ trong máy") {
-            if let v = model.internalVolume {
-                CapacityBar(label: "Ổ trong máy", total: v.total, free: v.availableForImportant).padding(4)
-            } else {
-                Text("Không đọc được ổ trong").foregroundStyle(.secondary)
+    // MARK: Alerts
+
+    @ViewBuilder
+    private var alerts: some View {
+        let liveProblems = model.liveIssues.values.contains { $0.contains { $0 != .ok && $0 != .khoMissing } }
+        if model.guardNotice != nil || liveProblems {
+            Card {
+                if let notice = model.guardNotice {
+                    HStack {
+                        StatusLabel(notice, systemImage: "hand.raised.fill", tint: .red)
+                        Spacer()
+                        Button("Đã hiểu") { model.guardNotice = nil }
+                    }
+                }
+                if liveProblems {
+                    HStack {
+                        StatusLabel("Một app chạy từ Kho có liên kết cần xử lý", systemImage: "exclamationmark.triangle.fill")
+                        Spacer()
+                        Button("Xem") { model.section = .live }
+                    }
+                }
             }
         }
+    }
+
+    // MARK: Hero
+
+    @ViewBuilder
+    private var hero: some View {
+        if let v = model.internalVolume {
+            let used = max(0, v.total - v.availableForImportant)
+            let fraction = v.total > 0 ? Double(used) / Double(v.total) : 0
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 32) {
+                    Figure(value: ByteFormat.string(v.availableForImportant), caption: "còn trống trên máy",
+                           tint: fraction > 0.9 ? .orange : .primary)
+                    if let k = model.khoVolume {
+                        Figure(value: ByteFormat.string(k.available), caption: "còn trống trên Kho")
+                    }
+                    Figure(value: ByteFormat.string(model.holdingBytes), caption: "trong vùng chờ")
+                    Spacer()
+                }
+                ProgressView(value: fraction)
+                    .tint(fraction > 0.9 ? .orange : .brand)
+                    .accessibilityLabel("Ổ trong máy")
+                    .accessibilityValue("Đã dùng \(Int(fraction * 100)) phần trăm")
+                Text("Đã dùng \(ByteFormat.string(used)) trên \(ByteFormat.string(v.total)) · \(Int(fraction * 100))%")
+                    .font(.callout).foregroundStyle(.secondary).monospacedDigit()
+            }
+            .padding(.vertical, 6)
+        } else {
+            Text("Không đọc được ổ trong").foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: Suggestions
+
+    private struct Suggestion: Identifiable {
+        let id: String
+        let title: String
+        let detail: String
+        let bytes: Int64
+        let systemImage: String
+        let go: SidebarSection
+    }
+
+    private var suggestionItems: [Suggestion] {
+        var out: [Suggestion] = []
+        let cleanable = model.cleanupCandidates.filter { !$0.manualOnly }
+        let cleanBytes = cleanable.reduce(Int64(0)) { $0 + $1.estimatedBytes }
+        if cleanBytes > 0 {
+            out.append(Suggestion(id: "cleanup", title: "Dọn cache và rác", detail: "\(cleanable.count) nhóm xoá an toàn, app tự tạo lại",
+                                  bytes: cleanBytes, systemImage: "trash", go: .cleanup))
+        }
+        let cutoff = Date().addingTimeInterval(-Double(Self.idleAppDays) * 86_400)
+        let idle = (model.appDataMap?.footprints ?? []).filter {
+            !$0.app.isAppStore && ($0.app.lastUsed?.date ?? .distantPast) < cutoff
+        }
+        let idleBytes = idle.reduce(Int64(0)) { $0 + $1.total }
+        if idleBytes > 0 {
+            out.append(Suggestion(id: "apps", title: "Cất app ít dùng vào Kho",
+                                  detail: "\(idle.count) app không mở trong \(Self.idleAppDays) ngày",
+                                  bytes: idleBytes, systemImage: "shippingbox", go: .apps))
+        }
+        let staleBytes = model.staleList.reduce(Int64(0)) { $0 + $1.size }
+        if staleBytes > 0 {
+            out.append(Suggestion(id: "files", title: "Cất file lâu không dùng",
+                                  detail: "\(model.staleList.count) file không mở trong \(model.staleDays) ngày",
+                                  bytes: staleBytes, systemImage: "doc.on.doc", go: .analyzer))
+        }
+        return out.sorted { $0.bytes > $1.bytes }
     }
 
     @ViewBuilder
-    private var khoCard: some View {
-        GroupBox("Kho") {
-            VStack(alignment: .leading, spacing: 10) {
-                if model.savedKhoUUID == nil {
-                    Text("Chọn Kho").font(.headline)
-                    Text("Chọn ổ ngoài dùng làm Kho. Switch Kho không tự chọn.")
-                        .font(.callout).foregroundStyle(.secondary)
-                    if model.externalVolumes.isEmpty {
-                        StatusLabel("Chưa thấy ổ ngoài nào. Hãy cắm ổ Kho.", systemImage: "externaldrive.badge.questionmark",
-                                    tint: .secondary)
+    private var suggestions: some View {
+        let items = suggestionItems
+        Card(title: "Gợi ý giải phóng",
+             footer: items.isEmpty ? nil : "Cất vào Kho luôn qua vùng chờ \(model.holdDays) ngày, hoàn tác được.") {
+            if items.isEmpty {
+                if model.isScanningApps || model.isScanningCleanup {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Đang tìm chỗ có thể giải phóng…").foregroundStyle(.secondary)
                     }
-                    ForEach(model.externalVolumes) { v in volumeRow(v) }
-                } else if let v = model.khoVolume {
-                    HStack {
-                        StatusLabel("Đang cắm · \(v.name)", systemImage: "circle.fill", tint: .green)
-                        Spacer()
-                        Button("Eject") { model.eject() }
-                    }
-                    CapacityBar(label: "Kho \(v.name)", total: v.total, free: v.available)
                 } else {
-                    StatusLabel("Chưa cắm", systemImage: "circle", tint: .secondary)
+                    Text("Chưa tìm thấy gì đáng giải phóng. Bấm Quét để đo lại.").foregroundStyle(.secondary)
                 }
-                if let problem = model.khoProblem {
-                    StatusLabel(problem, systemImage: "exclamationmark.triangle.fill")
-                }
-                if model.offerLedgerRestore {
-                    StatusLabel("Bản sao lưu sổ cái trên Kho có nhiều thao tác hơn sổ cái trong máy. Switch Kho không ghi đè nó.",
-                                systemImage: "exclamationmark.triangle.fill")
+            } else {
+                ForEach(items) { s in
+                    Button { model.section = s.go } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: s.systemImage)
+                                .font(.title3).foregroundStyle(Color.brand)
+                                .frame(width: 28)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(s.title)
+                                Text(s.detail).font(.callout).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(ByteFormat.string(s.bytes)).monospacedDigit().foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Mở màn \(s.go.title)")
+                    if s.id != items.last?.id { Divider() }
                 }
             }
-            .padding(4)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: Kho
+
+    @ViewBuilder
+    private var khoSection: some View {
+        Card(title: "Kho") {
+            if model.savedKhoUUID == nil {
+                Text("Chọn ổ ngoài dùng làm Kho. Switch Kho không tự chọn.").foregroundStyle(.secondary)
+                if model.externalVolumes.isEmpty {
+                    StatusLabel("Chưa thấy ổ ngoài nào. Hãy cắm ổ Kho.", systemImage: "externaldrive.badge.questionmark",
+                                tint: .secondary)
+                }
+                ForEach(model.externalVolumes) { v in volumeRow(v) }
+            } else if let v = model.khoVolume {
+                HStack {
+                    StatusLabel("Đang cắm · \(v.name)", systemImage: "externaldrive.fill.badge.checkmark", tint: .green)
+                    Spacer()
+                    Text("\(ByteFormat.string(v.available)) trống / \(ByteFormat.string(v.total))")
+                        .monospacedDigit().foregroundStyle(.secondary)
+                }
+                CapacityBar(label: "Kho \(v.name)", total: v.total, free: v.available)
+            } else {
+                StatusLabel("Kho chưa cắm — vẫn tìm được trong Danh mục", systemImage: "externaldrive.badge.xmark",
+                            tint: .secondary)
+            }
+            if let problem = model.khoProblem {
+                StatusLabel(problem, systemImage: "exclamationmark.triangle.fill")
+            }
+            if model.offerLedgerRestore {
+                StatusLabel("Bản sao lưu sổ cái trên Kho có nhiều thao tác hơn sổ cái trong máy. Switch Kho không ghi đè nó.",
+                            systemImage: "exclamationmark.triangle.fill")
+            }
         }
     }
 
     private func volumeRow(_ v: VolumeInfo) -> some View {
         HStack {
-            Image(systemName: "externaldrive")
+            Image(systemName: "externaldrive").foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(v.name)
                 Text("\(ByteFormat.string(v.available)) trống · \(v.format ?? "không rõ định dạng")")
@@ -115,7 +247,7 @@ struct DashboardView: View {
                 }
             }
             Spacer()
-            Button("Dùng ổ này làm Kho") {
+            Button("Dùng làm Kho") {
                 if model.volumeHasLedgerBackup(v) && model.ledgerIsEmpty {
                     askRestore = v
                 } else {
@@ -126,46 +258,49 @@ struct DashboardView: View {
         }
     }
 
-    private var holdingCard: some View {
-        GroupBox("Vùng chờ") {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Đang trong vùng chờ: \(ByteFormat.string(model.holdingBytes)) · tự xoá sau \(model.holdDays) ngày")
-                        .monospacedDigit()
-                    Spacer()
-                    Button("Xem") { model.refreshOperations(); showHolding = true }
+    // MARK: Holding
+
+    private var holdingSection: some View {
+        Card(title: "Vùng chờ") {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(model.holdingRows.count) lần cất · \(ByteFormat.string(model.holdingBytes))").monospacedDigit()
+                    Text("Bản gốc được giữ \(model.holdDays) ngày rồi mới xoá; hoàn tác được trong thời gian đó.")
+                        .font(.callout).foregroundStyle(.secondary)
                 }
-                if model.holdingNeedsAttention {
-                    StatusLabel("Vùng chờ lớn hoặc ổ trong sắp đầy. Cắm Kho để xoá phần đã đến hạn.",
-                                systemImage: "exclamationmark.triangle.fill")
-                }
-                let attention = model.holdingRows.filter { $0.op.error != nil || $0.op.needsReview }.count
-                if attention > 0 {
-                    StatusLabel("\(attention) thao tác cần xem", systemImage: "exclamationmark.circle.fill")
-                }
+                Spacer()
+                Button("Xem vùng chờ…") { model.refreshOperations(); showHolding = true }
             }
-            .padding(4)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            if model.holdingNeedsAttention {
+                StatusLabel("Vùng chờ lớn hoặc ổ trong sắp đầy. Cắm Kho để xoá phần đã đến hạn.",
+                            systemImage: "exclamationmark.triangle.fill")
+            }
+            let attention = model.holdingRows.filter { $0.op.error != nil || $0.op.needsReview }.count
+            if attention > 0 {
+                StatusLabel("\(attention) thao tác cần xem", systemImage: "exclamationmark.circle.fill")
+            }
         }
     }
 
+    // MARK: Environment
+
     @ViewBuilder
-    private var warnings: some View {
-        if !model.hasFullDiskAccess {
-            GroupBox {
-                HStack {
-                    StatusLabel("Switch Kho chưa có Full Disk Access nên một số thư mục không đọc được.",
-                                systemImage: "lock.shield")
-                    Spacer()
-                    Button("Mở Cài đặt") {
-                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
+    private var environmentSection: some View {
+        if !model.hasFullDiskAccess || model.hasTimeMachine == false {
+            Card(title: "Hệ thống") {
+                if !model.hasFullDiskAccess {
+                    HStack {
+                        StatusLabel("Chưa có Full Disk Access nên một số thư mục không đọc được.", systemImage: "lock.shield")
+                        Spacer()
+                        Button("Mở Cài đặt") { model.openPrivacySettings("Privacy_AllFiles") }
+                        Button("Kiểm lại") { model.checkEnvironment() }
                     }
-                    Button("Kiểm lại") { model.checkEnvironment() }
+                }
+                if model.hasTimeMachine == false {
+                    StatusLabel("Không có sao lưu Time Machine — sau vùng chờ, dữ liệu chỉ còn một bản trên Kho.",
+                                systemImage: "clock.badge.exclamationmark", tint: .secondary)
                 }
             }
-        }
-        if model.hasTimeMachine == false {
-            Text("Không có sao lưu Time Machine (đã chấp nhận rủi ro)").font(.callout).foregroundStyle(.secondary)
         }
     }
 }

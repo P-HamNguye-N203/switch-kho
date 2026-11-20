@@ -16,19 +16,27 @@ struct CatalogView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker("Chế độ", selection: $mode) {
-                ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 320)
             switch mode {
             case .search: searchPane
             case .archived: archivedPane
             }
         }
-        .padding(20)
+        .pageLayout()
         .navigationTitle("Danh mục")
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("Chế độ", selection: $mode) {
+                    ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { model.indexKhoIfStale(force: true) } label: { Label("Lập chỉ mục lại", systemImage: "arrow.clockwise") }
+                    .help("Đọc lại toàn bộ Kho vào danh mục")
+                    .disabled(model.kho == nil)
+            }
+        }
         .onAppear(perform: takeQuery)
         .onChange(of: model.catalogQuery) { takeQuery() }
         .confirmationDialog("Lấy về chỗ cũ?", isPresented: Binding(presenting: $confirmBack),
@@ -54,8 +62,7 @@ struct CatalogView: View {
 
     private var searchPane: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("Tìm theo tên hoặc đường dẫn (không cần dấu)", text: $query)
-                .textFieldStyle(.roundedBorder)
+            SearchBox(prompt: "Tìm theo tên hoặc đường dẫn — không cần dấu", text: $query)
                 .task(id: query) {
                     try? await Task.sleep(for: .milliseconds(200))
                     guard !Task.isCancelled else { return }
@@ -64,10 +71,11 @@ struct CatalogView: View {
                     results = found
                 }
             if query.trimmingCharacters(in: .whitespaces).count < 2 {
-                ContentUnavailableView("Gõ ít nhất 2 ký tự để tìm", systemImage: "magnifyingglass",
-                                       description: Text("Danh mục vẫn tìm được khi Kho đã rút."))
+                ContentUnavailableView("Tìm mọi thứ trên Kho", systemImage: "doc.text.magnifyingglass",
+                                       description: Text("Gõ ít nhất 2 ký tự. Không cần dấu, và vẫn tìm được khi Kho đã rút."))
+                    .fillCentered()
             } else if results.isEmpty {
-                ContentUnavailableView.search(text: query)
+                ContentUnavailableView.search(text: query).fillCentered()
             } else {
                 Table(results, selection: $selection) {
                     TableColumn("Tên") { e in
@@ -81,7 +89,7 @@ struct CatalogView: View {
                     }
                     .width(80)
                     TableColumn("Sửa") { e in
-                        Text(e.item.modified.map { $0.formatted(date: .numeric, time: .omitted) } ?? "—")
+                        Text(e.item.modified.map { $0.vi(date: .numeric, time: .omitted) } ?? "—")
                     }
                     .width(90)
                     TableColumn("Trạng thái") { e in
@@ -121,7 +129,7 @@ struct CatalogView: View {
     private var footer: some View {
         HStack {
             if let v = status.volume {
-                Text("Lập chỉ mục lúc \(v.lastIndexed.formatted(date: .abbreviated, time: .shortened)) · \(v.files) file · \(ByteFormat.string(v.bytes))")
+                Text("Lập chỉ mục lúc \(v.lastIndexed.vi(date: .abbreviated, time: .shortened)) · \(v.files) file · \(ByteFormat.string(v.bytes))")
                     .monospacedDigit()
             } else if model.kho == nil {
                 Text("Kho chưa cắm — kết quả lấy từ lần lập chỉ mục trước.")
@@ -131,8 +139,6 @@ struct CatalogView: View {
                 Text("Kho chưa được lập chỉ mục.")
             }
             Spacer()
-            Button("Lập chỉ mục lại") { model.indexKhoIfStale(force: true) }
-                .disabled(model.kho == nil)
         }
         .font(.callout)
         .foregroundStyle(.secondary)
@@ -148,14 +154,15 @@ struct CatalogView: View {
         let ops = model.personalArchives
         if ops.isEmpty {
             ContentUnavailableView("Chưa cất gì", systemImage: "archivebox",
-                                   description: Text("Chuột phải một thư mục hay file trong Phân tích › Cây thư mục rồi chọn \"Cất vào Kho\"."))
+                                   description: Text("Chuột phải một thư mục hay file trong Phân tích › Theo thư mục, hoặc dùng màn Hai khung."))
+                .fillCentered()
         } else {
             List(ops, id: \.id) { op in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(op.title ?? "#\(op.id)").font(.headline)
                         Text(op.state == .holding
-                             ? "Trong vùng chờ đến \(op.holdingUntil?.formatted(date: .abbreviated, time: .omitted) ?? "—")"
+                             ? "Trong vùng chờ đến \(op.holdingUntil?.vi(date: .abbreviated, time: .omitted) ?? "—")"
                              : "Chỉ còn trên Kho")
                             .font(.callout).foregroundStyle(.secondary)
                     }

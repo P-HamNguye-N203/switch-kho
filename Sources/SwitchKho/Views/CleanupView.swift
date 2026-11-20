@@ -15,45 +15,68 @@ struct CleanupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            toolbar
             if candidates.isEmpty {
                 if model.isScanningCleanup {
-                    ProgressView("Đang tìm…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ProgressView("Đang tìm cache và rác…").fillCentered()
                 } else {
                     ContentUnavailableView(
                         model.cleanupCandidates.isEmpty ? "Chưa quét" : "Không có gì để dọn cho app này",
-                        systemImage: "sparkles",
+                        systemImage: "trash",
                         description: Text("Bấm Quét để tìm cache và rác có thể xoá an toàn."))
+                        .fillCentered()
                 }
             } else {
+                header
                 List {
                     ForEach(candidates) { c in row(c) }
                 }
+                .listStyle(.inset(alternatesRowBackgrounds: false))
             }
         }
-        .padding(20)
+        .pageLayout()
         .navigationTitle("Dọn dẹp")
+        .navigationSubtitle(candidates.isEmpty ? "" : "Có thể giải phóng khoảng \(ByteFormat.string(candidates.reduce(Int64(0)) { $0 + $1.estimatedBytes }))")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { model.scanCleanup() } label: { Label("Quét", systemImage: "arrow.clockwise") }
+                    .help("Tìm lại cache và rác (⌘R)")
+                    .keyboardShortcut("r", modifiers: .command)
+                    .disabled(model.isScanningCleanup)
+            }
+        }
         .onAppear { if model.cleanupCandidates.isEmpty && !model.isScanningCleanup { model.scanCleanup() } }
         .sheet(item: Binding(get: { confirm.map(ConfirmBox.init) }, set: { if $0 == nil { confirm = nil } })) { box in
             confirmSheet(box.items)
         }
     }
 
-    private var toolbar: some View {
-        HStack {
-            Button(model.cleanupCandidates.isEmpty ? "Quét" : "Quét lại") { model.scanCleanup() }
-                .disabled(model.isScanningCleanup)
+    /// Selection summary and the one primary action of the screen.
+    private var header: some View {
+        let selectable = candidates.filter { !$0.manualOnly }
+        let chosenBytes = selectedCandidates.reduce(Int64(0)) { $0 + $1.estimatedBytes }
+        return HStack(spacing: 10) {
+            Toggle(isOn: Binding(get: { !selectable.isEmpty && selectable.allSatisfy { selected.contains($0.id) } },
+                                 set: { on in
+                                     if on { selected.formUnion(selectable.map(\.id)) } else { selected.subtract(selectable.map(\.id)) }
+                                 })) {
+                Text("Chọn tất cả")
+            }
+            .toggleStyle(.checkbox)
             if let filter = model.cleanupFilter {
-                Label(appName(filter), systemImage: "line.3.horizontal.decrease.circle")
-                    .font(.callout)
+                Label("Chỉ \(appName(filter))", systemImage: "line.3.horizontal.decrease.circle.fill")
+                    .foregroundStyle(Color.brand)
                 Button("Bỏ lọc") { model.cleanupFilter = nil }.buttonStyle(.link)
             }
             Spacer()
-            let total = candidates.reduce(Int64(0)) { $0 + $1.estimatedBytes }
-            Text("Ước tính: \(ByteFormat.string(total))").monospacedDigit().foregroundStyle(.secondary)
-            Button("Dọn \(selectedCandidates.count) mục đã chọn") { confirm = selectedCandidates }
-                .disabled(selectedCandidates.isEmpty)
-                .keyboardShortcut(.defaultAction)
+            if selectedCandidates.isEmpty {
+                Text("Chọn nhóm cần dọn").foregroundStyle(.secondary)
+            } else {
+                Text("\(selectedCandidates.count) nhóm · \(ByteFormat.string(chosenBytes))").monospacedDigit()
+                    .foregroundStyle(.secondary)
+                Button("Dọn…") { confirm = selectedCandidates }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
         }
     }
 

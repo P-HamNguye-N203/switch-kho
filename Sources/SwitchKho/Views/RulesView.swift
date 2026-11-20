@@ -10,21 +10,15 @@ struct RulesView: View {
         let _ = model.catalogGeneration
         let rules = model.rules
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Quy tắc gợi ý hoặc tự cất các mục lâu không dùng trong một thư mục. Mọi lần cất đều qua vùng chờ \(model.holdDays) ngày.")
-                    .font(.callout).foregroundStyle(.secondary)
-                Spacer()
-                Button("Thêm quy tắc…") {
-                    editing = OffloadRule(name: "Quy tắc mới",
-                                          folderPath: FileManager.default.homeDirectoryForCurrentUser
-                                              .appendingPathComponent("Downloads").path,
-                                          minDaysUnused: 90, minSizeMB: 50, extensions: [], mode: .suggest,
-                                          leaveSymlink: false, enabled: true)
-                }
-            }
             if rules.isEmpty {
-                ContentUnavailableView("Chưa có quy tắc", systemImage: "wand.and.stars",
-                                       description: Text("Ví dụ: cất file .dmg trong Downloads không mở quá 90 ngày."))
+                ContentUnavailableView {
+                    Label("Chưa có quy tắc", systemImage: "wand.and.stars")
+                } description: {
+                    Text("Ví dụ: cất file .dmg trong Downloads không mở quá 90 ngày. Mọi lần cất đều qua vùng chờ \(model.holdDays) ngày.")
+                } actions: {
+                    Button("Thêm quy tắc…") { editing = newRule() }.buttonStyle(.borderedProminent)
+                }
+                .fillCentered()
             } else {
                 List(rules) { rule in
                     HStack {
@@ -53,14 +47,27 @@ struct RulesView: View {
                 }
             }
         }
-        .padding(20)
+        .pageLayout()
         .navigationTitle("Quy tắc")
+        .navigationSubtitle("Gợi ý hoặc tự cất mục lâu không dùng · qua vùng chờ \(model.holdDays) ngày")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { editing = newRule() } label: { Label("Thêm quy tắc", systemImage: "plus") }
+                    .help("Tạo quy tắc mới")
+            }
+        }
         .sheet(item: $editing) { rule in RuleEditorView(rule: rule) }
         .confirmationDialog("Xoá quy tắc?", isPresented: Binding(presenting: $confirmDelete),
                             presenting: confirmDelete) { rule in
             Button("Xoá \(rule.name)", role: .destructive) { model.deleteRule(rule) }
             Button("Thôi", role: .cancel) {}
         } message: { _ in Text("Các mục đã cất trước đó không bị ảnh hưởng.") }
+    }
+
+    private func newRule() -> OffloadRule {
+        OffloadRule(name: "Quy tắc mới",
+                    folderPath: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads").path,
+                    minDaysUnused: 90, minSizeMB: 50, extensions: [], mode: .suggest, leaveSymlink: false, enabled: true)
     }
 
     private func summary(_ r: OffloadRule) -> String {

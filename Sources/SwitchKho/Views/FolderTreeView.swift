@@ -65,6 +65,7 @@ struct FolderTreeView: View {
             } else {
                 ContentUnavailableView("Chưa quét", systemImage: "folder.badge.questionmark",
                                        description: Text("Chọn một thư mục để xem dung lượng theo cây."))
+                    .fillCentered()
             }
         }
     }

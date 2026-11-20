@@ -41,7 +41,7 @@ extension AppModel {
     }
 
     func catalogIndexed(count: Int, seconds: Int) {
-        ledger.log(action: "Lập chỉ mục Kho", path: nil, detail: "\(count) mục trong \(seconds) giây", ok: true)
+        ledger.log(action: "Lập chỉ mục Kho", path: nil, detail: "\(count.formatted(.number.locale(VN.locale))) mục trong \(seconds) giây", ok: true)
         catalogGeneration += 1
     }
 

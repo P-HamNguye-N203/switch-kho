@@ -5,6 +5,20 @@ enum SidebarSection: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Sidebar groups, in order: what the app is for, then the Kho, then housekeeping.
+    enum Group: String, CaseIterable {
+        case start = "", free = "Giải phóng dung lượng", kho = "Kho", system = "Hệ thống"
+    }
+
+    var group: Group {
+        switch self {
+        case .overview: return .start
+        case .analyzer, .cleanup, .apps: return .free
+        case .live, .files, .catalog, .rules: return .kho
+        case .activity: return .system
+        }
+    }
+
     var title: String {
         switch self {
         case .overview: return "Tổng quan"
@@ -22,12 +36,12 @@ enum SidebarSection: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .overview: return "gauge.with.dots.needle.33percent"
-        case .analyzer: return "chart.pie"
-        case .cleanup: return "sparkles"
+        case .analyzer: return "chart.bar.xaxis"
+        case .cleanup: return "trash"
         case .apps: return "app.badge"
         case .live: return "bolt.horizontal"
         case .files: return "rectangle.split.2x1"
-        case .catalog: return "magnifyingglass"
+        case .catalog: return "doc.text.magnifyingglass"
         case .rules: return "wand.and.stars"
         case .activity: return "list.bullet.rectangle"
         }

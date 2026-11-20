@@ -73,7 +73,7 @@ struct AppFootprintTable: View {
             TableColumn("Tổng", value: \.total) { BytesText(bytes: $0.total).bold() }.width(min: 70, ideal: 90)
             TableColumn("Dùng lần cuối", value: \.lastUsedSort) { r in
                 if let u = r.lastUsed {
-                    Text(u.date.formatted(date: .abbreviated, time: .omitted)).monospacedDigit()
+                    Text(u.date.vi(date: .abbreviated, time: .omitted)).monospacedDigit()
                         .help("Nguồn: \(u.source.label)")
                 }
             }

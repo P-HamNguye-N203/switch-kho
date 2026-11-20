@@ -13,20 +13,30 @@ struct AppsView: View {
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 12) {
-            Picker("Cách xem", selection: $tab) {
-                ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 300)
-
             switch tab {
             case .local: localTab
             case .kho: khoTab
             }
         }
-        .padding(20)
+        .pageLayout()
         .navigationTitle("Ứng dụng")
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("Cách xem", selection: $tab) {
+                    ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            if tab == .local {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { model.scanApps() } label: { Label("Quét", systemImage: "arrow.clockwise") }
+                        .help("Đo lại dung lượng từng ứng dụng (⌘R)")
+                        .keyboardShortcut("r", modifiers: .command)
+                        .disabled(model.isScanningApps)
+                }
+            }
+        }
         .onAppear {
             if model.appDataMap == nil && !model.isScanningApps { model.scanApps() }
             model.refreshOperations()
@@ -55,15 +65,12 @@ struct AppsView: View {
     @ViewBuilder
     private var localTab: some View {
         @Bindable var model = model
-        HStack {
-            Button(model.appDataMap == nil ? "Quét" : "Quét lại") { model.scanApps() }
-                .disabled(model.isScanningApps)
-            if model.isScanningApps { ProgressView().controlSize(.small) }
-            Spacer()
-            if model.kho == nil {
-                StatusLabel("Cắm Kho để cất app", systemImage: "externaldrive.badge.xmark", tint: .secondary)
-            }
+        if model.kho == nil {
+            StatusLabel("Cắm Kho để cất app", systemImage: "externaldrive.badge.xmark", tint: .secondary)
         }
+        if model.appDataMap == nil {
+            ProgressView("Đang đo dung lượng từng ứng dụng…").fillCentered()
+        } else {
         HSplitView {
             Table(footprints, selection: Binding(
                 get: { model.appsSelection.flatMap { id in footprints.first { $0.app.bundleID == id }?.id } },
@@ -75,7 +82,7 @@ struct AppsView: View {
                 TableColumn("Tổng") { fp in BytesText(bytes: fp.total) }.width(min: 70, ideal: 90)
                 TableColumn("Dùng lần cuối") { fp in
                     if let d = fp.app.lastUsed?.date {
-                        Text(d.formatted(date: .abbreviated, time: .omitted)).monospacedDigit()
+                        Text(d.vi(date: .abbreviated, time: .omitted)).monospacedDigit()
                     } else {
                         Text("—").foregroundStyle(.secondary)
                     }
@@ -83,7 +90,9 @@ struct AppsView: View {
                 .width(min: 90, ideal: 110)
             }
             .frame(minWidth: 420)
-            detailPane.frame(minWidth: 280)
+            detailPane.frame(minWidth: 280, maxHeight: .infinity, alignment: .top)
+        }
+        .frame(maxHeight: .infinity)
         }
     }
 
@@ -99,7 +108,11 @@ struct AppsView: View {
         if let fp = model.footprint(model.appsSelection) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(fp.app.name).font(.title3.bold())
+                    Label {
+                        Text(fp.app.name).font(.title3.bold())
+                    } icon: {
+                        Image(nsImage: NSWorkspace.shared.icon(forFile: fp.app.url.path)).resizable().frame(width: 32, height: 32)
+                    }
                     Text("Bundle \(ByteFormat.string(fp.bundleAllocated)) · dữ liệu \(ByteFormat.string(fp.dataAllocated))")
                         .monospacedDigit().foregroundStyle(.secondary)
                     if let e = model.eligibility[fp.app.bundleID] {
@@ -108,7 +121,8 @@ struct AppsView: View {
                         if fp.hasVMImage {
                             StatusLabel("Có ảnh đĩa máy ảo: chỉ cất lạnh, không chạy từ Kho được", systemImage: "shippingbox.fill")
                         }
-                        Button("Cất vào kho…") { confirmArchive = fp }
+                        Button("Cất vào Kho…") { confirmArchive = fp }
+                            .buttonStyle(.borderedProminent)
                             .disabled(!e.allowed || model.kho == nil)
                             .help(model.kho == nil ? "Cắm Kho trước" : e.allowed ? "" : "Xem lý do chặn ở trên")
                     } else {
@@ -121,6 +135,7 @@ struct AppsView: View {
         } else {
             ContentUnavailableView("Chọn một app", systemImage: "app.dashed",
                                    description: Text("App ít dùng nhất nằm trên cùng."))
+                .fillCentered()
         }
     }
 
@@ -140,7 +155,7 @@ struct AppsView: View {
             HStack {
                 Spacer()
                 Button("Thôi") { confirmArchive = nil }.keyboardShortcut(.cancelAction)
-                Button("Cất vào kho") {
+                Button("Cất vào Kho") {
                     model.archiveApp(fp)
                     confirmArchive = nil
                 }
@@ -167,6 +182,7 @@ struct AppsView: View {
         if model.archivedApps.isEmpty {
             ContentUnavailableView("Chưa cất app nào", systemImage: "archivebox",
                                    description: Text("App đã cất vào Kho sẽ hiện ở đây."))
+                .fillCentered()
         } else {
             List(model.archivedApps, id: \.id) { op in
                 HStack {
@@ -194,7 +210,7 @@ struct AppsView: View {
     private func statusText(_ op: LedgerOperation) -> String {
         switch op.state {
         case .holding:
-            let until = op.holdingUntil?.formatted(date: .abbreviated, time: .omitted) ?? "?"
+            let until = op.holdingUntil?.vi(date: .abbreviated, time: .omitted) ?? "?"
             return "Trong vùng chờ tới \(until), hoàn tác được"
         case .committed: return "Chỉ còn trên Kho"
         case .restoring, .undoing: return "Đang đưa về dở, bấm để thử lại"

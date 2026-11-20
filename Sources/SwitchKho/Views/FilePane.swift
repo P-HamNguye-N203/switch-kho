@@ -47,7 +47,8 @@ struct FilePane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Text(title).font(.headline)
+                Label(title, systemImage: title == "Kho" ? "externaldrive.fill" : "laptopcomputer")
+                    .font(.headline).foregroundStyle(title == "Kho" ? Color.brand : .primary)
                 Button { goBack() } label: { Image(systemName: "chevron.left") }
                     .disabled(history.isEmpty).help("Lùi").accessibilityLabel("Lùi")
                 Button { go(folder.deletingLastPathComponent()) } label: { Image(systemName: "arrow.up") }
@@ -77,6 +78,11 @@ struct FilePane: View {
                 guard let row = rows.first(where: { ids.contains($0.id) }) else { return }
                 if row.isDirectory { go(row.url) } else { NSWorkspace.shared.open(row.url) }
             }
+            .overlay {
+                if rows.isEmpty {
+                    Text("Thư mục trống — kéo file vào đây").foregroundStyle(.secondary)
+                }
+            }
             .dropDestination(for: URL.self) { urls, _ in
                 let foreign = urls.filter { !FileOps.same($0.deletingLastPathComponent(), folder) }
                 guard !foreign.isEmpty else { return false }
@@ -90,7 +96,7 @@ struct FilePane: View {
         }
     }
 
-    static func date(_ d: Date) -> String { d.formatted(date: .numeric, time: .omitted) }
+    static func date(_ d: Date) -> String { d.vi(date: .numeric, time: .omitted) }
 
     private func go(_ url: URL) {
         history.append(folder)

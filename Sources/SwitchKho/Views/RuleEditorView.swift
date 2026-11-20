@@ -84,7 +84,7 @@ struct RuleEditorView: View {
                         Label(c.url.lastPathComponent, systemImage: c.isDirectory ? "folder" : "doc").lineLimit(1)
                     }
                     TableColumn("Cỡ") { c in Text(ByteFormat.string(c.allocated)).monospacedDigit() }.width(80)
-                    TableColumn("Dùng lần cuối") { c in Text(c.usage.date.formatted(date: .numeric, time: .omitted)) }
+                    TableColumn("Dùng lần cuối") { c in Text(c.usage.date.vi(date: .numeric, time: .omitted)) }
                         .width(100)
                     TableColumn("Nguồn ngày") { c in Text(sourceName(c.usage.source)).foregroundStyle(.secondary) }
                         .width(110)

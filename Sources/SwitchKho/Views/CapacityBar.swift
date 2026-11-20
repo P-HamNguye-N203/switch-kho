@@ -12,7 +12,7 @@ struct CapacityBar: View {
         let summary = "Đã dùng \(ByteFormat.string(used)) / \(ByteFormat.string(total)) · còn trống \(ByteFormat.string(free))"
         VStack(alignment: .leading, spacing: 4) {
             ProgressView(value: fraction)
-                .tint(fraction > 0.9 ? .orange : .accentColor)
+                .tint(fraction > 0.9 ? .orange : .brand)
             HStack(spacing: 6) {
                 if fraction > 0.9 {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)

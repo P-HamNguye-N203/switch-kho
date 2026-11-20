@@ -95,7 +95,7 @@ struct HoldingListView: View {
         } else if let error = row.op.error {
             StatusLabel(error, systemImage: "xmark.octagon.fill", tint: .red)
         } else if let until = row.op.holdingUntil {
-            Text("Tự xoá sau \(until.formatted(date: .abbreviated, time: .shortened)) (khi Kho cắm và kiểm khớp)")
+            Text("Tự xoá sau \(until.vi(date: .abbreviated, time: .shortened)) (khi Kho cắm và kiểm khớp)")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }

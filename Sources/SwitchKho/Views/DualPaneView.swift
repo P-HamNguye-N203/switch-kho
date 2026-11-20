@@ -40,8 +40,9 @@ struct DualPaneView: View {
                 .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .padding(16)
+        .pageLayout(padding: 16)
         .navigationTitle("Hai khung")
+        .navigationSubtitle("Kéo thả giữa hai bên: sang phải là cất, sang trái là lấy về")
         .onChange(of: leftSelection) { if !leftSelection.isEmpty { copyToKho = true } }
         .onChange(of: rightSelection) { if !rightSelection.isEmpty { copyToKho = false } }
         .onChange(of: model.kho?.uuid) { rightFolder = nil; rightSelection = [] }
@@ -69,7 +70,8 @@ struct DualPaneView: View {
             Spacer()
         }
         .buttonStyle(.bordered)
-        .frame(width: 110)
+        .controlSize(.large)
+        .frame(width: 120)
     }
 
     private func bringBack(_ urls: [URL]) {

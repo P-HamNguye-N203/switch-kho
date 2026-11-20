@@ -34,18 +34,18 @@ struct LiveView: View {
                     Button("Đã hiểu") { model.guardNotice = nil }
                 }
             }
-            HStack {
-                Text("App chạy từ Kho mở được chỉ khi Kho đang cắm. Luôn tháo Kho bằng nút Eject của Switch Kho.")
-                    .font(.callout).foregroundStyle(.secondary)
-                Spacer()
-                Button("Thêm app…") { adding = true }
-                    .disabled(model.kho == nil)
-                    .help(model.kho == nil ? "Cắm Kho trước" : "")
-            }
             liveList
         }
-        .padding(20)
+        .pageLayout()
         .navigationTitle("Chạy từ Kho")
+        .navigationSubtitle("Chỉ mở được khi Kho cắm · luôn tháo Kho bằng Switch Kho")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { adding = true } label: { Label("Thêm app", systemImage: "plus") }
+                    .disabled(model.kho == nil)
+                    .help(model.kho == nil ? "Cắm Kho trước" : "Chọn một app để chạy dữ liệu của nó từ Kho")
+            }
+        }
         .onAppear {
             loginEnabled = LoginItem.isEnabled
             model.refreshOperations()
@@ -77,8 +77,16 @@ struct LiveView: View {
     private var liveList: some View {
         let ops = operations
         if ops.isEmpty {
-            ContentUnavailableView("Chưa có app nào chạy từ Kho", systemImage: "externaldrive.connected.to.line.below",
-                                   description: Text("Dữ liệu Application Support của app được dời lên Kho, chỗ cũ là liên kết."))
+            ContentUnavailableView {
+                Label("Chưa có app nào chạy từ Kho", systemImage: "externaldrive.connected.to.line.below")
+            } description: {
+                Text("Dữ liệu Application Support của app được dời lên Kho, chỗ cũ là một liên kết. App vẫn chạy bình thường khi Kho đang cắm.")
+            } actions: {
+                Button("Thêm app…") { adding = true }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.kho == nil)
+            }
+            .fillCentered()
         } else {
             List {
                 ForEach(ops, id: \.id) { op in row(op) }
@@ -104,8 +112,8 @@ struct LiveView: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(op.title ?? "#\(op.id)").font(.headline)
-                statusLabel(summary)
                 Spacer()
+                statusLabel(summary)
                 if model.busyOps.contains(op.id) {
                     ProgressView().controlSize(.small)
                 } else {
