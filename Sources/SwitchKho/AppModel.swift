@@ -528,7 +528,8 @@ final class AppModel {
                 let overrides = Dictionary(raw.map { (String($0.key.dropFirst("appdata.override.".count)), $0.value) },
                                            uniquingKeysWith: { a, _ in a })
                 let map = AppDataMapper.map(home: FileManager.default.homeDirectoryForCurrentUser,
-                                            apps: apps, overrides: overrides)
+                                            apps: apps, overrides: overrides,
+                                            progress: { ctx.report(fraction: 0.2 + 0.75 * $0, detail: "Đo dữ liệu trong Thư viện") })
                 ctx.report(fraction: 0.95, detail: "Kiểm ứng dụng đang chạy")
                 let running = Self.runningBundleIDs(map.footprints.map(\.app))
                 await self?.setAppDataMap(map, running: running)

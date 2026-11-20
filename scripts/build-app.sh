@@ -21,6 +21,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/SwitchKho "$APP/Contents/MacOS/"
 cp Resources/Info.plist "$APP/Contents/"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/"
+# An (empty) Vietnamese localization makes AppKit use Vietnamese for its own menus and windows.
+mkdir -p "$APP/Contents/Resources/vi.lproj"
 
 # Unlock with the password kept in the login keychain, when the signing keychain was
 # created with --auto.

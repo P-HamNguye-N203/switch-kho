@@ -23,7 +23,6 @@ struct SwitchKhoApp: App {
                     .safeAreaInset(edge: .bottom, spacing: 0) { BottomStatusArea() }
             }
             .frame(minWidth: 900, minHeight: 560)
-            .tint(.brand)
             .environment(\.locale, VN.locale)
             .modifier(HideWhenLaunchedAtLogin())
             .environment(model)
@@ -37,14 +36,12 @@ struct SwitchKhoApp: App {
 
         Settings {
             SettingsView()
-                .tint(.brand)
                 .environment(\.locale, VN.locale)
                 .environment(model)
         }
 
         MenuBarExtra {
             MenuBarView()
-                .tint(.brand)
                 .environment(\.locale, VN.locale)
                 .environment(model)
         } label: {
@@ -101,7 +98,7 @@ private struct Sidebar: View {
             let n = model.holdingRows.filter { $0.op.error != nil || $0.op.needsReview }.count
             return n > 0 ? Text("\(n)").foregroundColor(.orange) : nil
         case .cleanup:
-            let n = model.visibleCleanupCandidates.filter { $0.estimatedBytes > 0 }.count
+            let n = model.safeCleanupCandidates.count
             return n > 0 ? Text("\(n)") : nil
         case .live:
             let n = model.liveIssues.values.filter { LiveIntegrity.summary($0) != .ok && LiveIntegrity.summary($0) != .khoMissing }.count

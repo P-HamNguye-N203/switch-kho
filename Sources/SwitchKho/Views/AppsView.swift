@@ -9,6 +9,7 @@ struct AppsView: View {
     @SceneStorage("apps.tab") private var tab = Tab.local
     @State private var confirmArchive: AppFootprint?
     @State private var confirmUndo: LedgerOperation?
+    @State private var sortOrder = [KeyPathComparator(\AppFootprint.lastUsedOrPast)]
 
     var body: some View {
         @Bindable var model = model
@@ -30,7 +31,8 @@ struct AppsView: View {
             }
             if tab == .local {
                 ToolbarItem(placement: .primaryAction) {
-                    Button { model.scanApps() } label: { Label("Quét", systemImage: "arrow.clockwise") }
+                    Button { model.scanApps() } label: { Label("Quét lại", systemImage: "arrow.clockwise") }
+                        .labelStyle(.titleAndIcon)
                         .help("Đo lại dung lượng từng ứng dụng (⌘R)")
                         .keyboardShortcut("r", modifiers: .command)
                         .disabled(model.isScanningApps)
@@ -57,9 +59,7 @@ struct AppsView: View {
     // MARK: On this Mac
 
     private var footprints: [AppFootprint] {
-        (model.appDataMap?.footprints ?? []).sorted {
-            ($0.app.lastUsed?.date ?? .distantPast) < ($1.app.lastUsed?.date ?? .distantPast)
-        }
+        (model.appDataMap?.footprints ?? []).sorted(using: sortOrder)
     }
 
     @ViewBuilder
@@ -74,13 +74,20 @@ struct AppsView: View {
         HSplitView {
             Table(footprints, selection: Binding(
                 get: { model.appsSelection.flatMap { id in footprints.first { $0.app.bundleID == id }?.id } },
-                set: { id in model.appsSelection = footprints.first { $0.id == id }?.app.bundleID })) {
-                TableColumn("Ứng dụng") { fp in Text(fp.app.name).lineLimit(1) }
-                    .width(min: 140, ideal: 200)
+                set: { id in model.appsSelection = footprints.first { $0.id == id }?.app.bundleID }),
+                  sortOrder: $sortOrder) {
+                TableColumn("Ứng dụng", value: \.app.name) { fp in
+                    Label {
+                        Text(fp.app.name).lineLimit(1)
+                    } icon: {
+                        Image(nsImage: NSWorkspace.shared.icon(forFile: fp.app.url.path)).resizable().frame(width: 16, height: 16)
+                    }
+                }
+                .width(min: 160, ideal: 220)
                 TableColumn("Nguồn") { fp in Text(source(fp.app)).foregroundStyle(.secondary) }
                     .width(min: 70, ideal: 90)
-                TableColumn("Tổng") { fp in BytesText(bytes: fp.total) }.width(min: 70, ideal: 90)
-                TableColumn("Dùng lần cuối") { fp in
+                TableColumn("Tổng", value: \.total) { fp in BytesText(bytes: fp.total) }.width(min: 70, ideal: 90)
+                TableColumn("Dùng lần cuối", value: \.lastUsedOrPast) { fp in
                     if let d = fp.app.lastUsed?.date {
                         Text(d.vi(date: .abbreviated, time: .omitted)).monospacedDigit()
                     } else {
@@ -100,7 +107,7 @@ struct AppsView: View {
         if app.isAppStore { return "App Store" }
         if app.isAdobe { return "Adobe" }
         if app.hasSparkle { return "Sparkle" }
-        return "Thường"
+        return "Tải ngoài"
     }
 
     @ViewBuilder
@@ -134,7 +141,7 @@ struct AppsView: View {
             }
         } else {
             ContentUnavailableView("Chọn một app", systemImage: "app.dashed",
-                                   description: Text("App ít dùng nhất nằm trên cùng."))
+                                   description: Text("Bấm tiêu đề cột để sắp theo dung lượng hoặc lần dùng cuối."))
                 .fillCentered()
         }
     }
@@ -217,4 +224,9 @@ struct AppsView: View {
         default: return op.state.rawValue
         }
     }
+}
+
+private extension AppFootprint {
+    /// Never-used apps sort as the oldest.
+    var lastUsedOrPast: Date { app.lastUsed?.date ?? .distantPast }
 }

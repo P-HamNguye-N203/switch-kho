@@ -53,6 +53,7 @@ struct RulesView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { editing = newRule() } label: { Label("Thêm quy tắc", systemImage: "plus") }
+                    .labelStyle(.titleAndIcon)
                     .help("Tạo quy tắc mới")
             }
         }

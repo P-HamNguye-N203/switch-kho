@@ -20,18 +20,21 @@ extension AppModel {
 
     /// Discovers candidates; scans apps first when the analyzer has not run yet.
     func scanCleanup() {
-        let ledger = self.ledger, existing = appDataMap
+        let ledger = self.ledger
         Task {
             await jobQueue.enqueue(title: Self.scanCleanupTitle, cancellable: true) { [weak self] ctx in
                 let home = FileManager.default.homeDirectoryForCurrentUser
-                var map = existing
+                // Read when the job runs, not when it was queued: an app scan queued just before
+                // has filled it by then, so the Library is not measured twice.
+                var map = await self?.appDataMap
                 if map == nil {
-                    ctx.report(fraction: 0.1, detail: "Đo dữ liệu ứng dụng")
+                    ctx.report(fraction: 0.05, detail: "Đo dữ liệu ứng dụng")
                     let apps = AppCatalog.scan()
                     let raw = (try? ledger.settings(withPrefix: "appdata.override.")) ?? [:]
                     let overrides = Dictionary(raw.map { (String($0.key.dropFirst("appdata.override.".count)), $0.value) },
                                                uniquingKeysWith: { a, _ in a })
-                    let m = AppDataMapper.map(home: home, apps: apps, overrides: overrides)
+                    let m = AppDataMapper.map(home: home, apps: apps, overrides: overrides,
+                                              progress: { ctx.report(fraction: 0.05 + 0.45 * $0, detail: "Đo dữ liệu ứng dụng") })
                     map = m
                     let running = Self.runningBundleIDs(m.footprints.map(\.app))
                     await self?.setAppDataMap(m, running: running)
@@ -45,6 +48,18 @@ extension AppModel {
     }
 
     func setCleanupCandidates(_ c: [CleanupCandidate]) { cleanupCandidates = c }
+
+    /// Below this, a group is noise next to the gigabytes the screen is about.
+    static let smallCleanupBytes: Int64 = 1_000_000
+
+    /// Groups that can be ticked and cleaned together, biggest first. One definition for the
+    /// sidebar badge, the overview suggestion and the cleanup screen, so their numbers agree.
+    var safeCleanupCandidates: [CleanupCandidate] {
+        cleanupCandidates.filter { !$0.manualOnly && $0.estimatedBytes >= Self.smallCleanupBytes }
+            .sorted { $0.estimatedBytes > $1.estimatedBytes }
+    }
+
+    var safeCleanupBytes: Int64 { safeCleanupCandidates.reduce(0) { $0 + $1.estimatedBytes } }
 
     func requirementText(_ r: AppStateRequirement) -> String? {
         switch r {

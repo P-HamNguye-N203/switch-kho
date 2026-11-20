@@ -52,7 +52,7 @@ struct JobStatusBar: View {
                 }
                 Spacer()
                 let queued = model.jobs.filter { $0.state == .queued }.count
-                if queued > 0 { Text("\(queued) việc chờ").font(.callout).foregroundStyle(.secondary) }
+                if queued > 0 { Text("còn \(queued) việc chờ").font(.callout).foregroundStyle(.secondary) }
                 Button("Huỷ") { model.cancelRunningJob() }
                     .disabled(!job.cancellable)
                     .help(job.cancellable ? "Dừng việc đang chạy"

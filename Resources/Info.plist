@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>vi</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>vi</string>
+    </array>
     <key>CFBundleIdentifier</key>
     <string>local.switchkho.app</string>
     <key>CFBundleIconFile</key>

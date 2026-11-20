@@ -78,10 +78,10 @@ struct AppFootprintTable: View {
                 }
             }
             .width(min: 90, ideal: 110)
-            TableColumn("Ảnh máy ảo") { r in
-                if r.hasVM { VMImageBadge() }
+            TableColumn("Máy ảo") { r in
+                if r.hasVM { VMImageBadge().help("Có ảnh đĩa máy ảo: chỉ cất lạnh được, không chạy từ Kho") }
             }
-            .width(70)
+            .width(60)
             TableColumn("Đang chạy") { r in
                 if r.running == true {
                     StatusLabel("Đang chạy", systemImage: "circle.fill", tint: .green)

@@ -33,6 +33,7 @@ struct CatalogView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Button { model.indexKhoIfStale(force: true) } label: { Label("Lập chỉ mục lại", systemImage: "arrow.clockwise") }
+                    .labelStyle(.titleAndIcon)
                     .help("Đọc lại toàn bộ Kho vào danh mục")
                     .disabled(model.kho == nil)
             }

@@ -6,6 +6,7 @@ struct DashboardView: View {
     @State private var showHolding = false
     @State private var pendingAdopt: VolumeInfo?
     @State private var askRestore: VolumeInfo?
+    @AppStorage("overview.hideNoBackupNotice") private var hideNoBackupNotice = false
 
     /// Apps not opened for this many days are offered for archiving.
     static let idleAppDays = 90
@@ -31,13 +32,15 @@ struct DashboardView: View {
                     model.scanApps()
                     model.scanCleanup()
                 } label: {
-                    Label("Quét", systemImage: "arrow.clockwise")
+                    Label("Quét lại", systemImage: "arrow.clockwise")
                 }
+                .labelStyle(.titleAndIcon)
                 .help("Đo lại dung lượng app và tìm rác có thể dọn (⌘R)")
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(model.isScanningApps || model.isScanningCleanup)
                 if model.kho != nil {
                     Button { model.eject() } label: { Label("Tháo Kho", systemImage: "eject") }
+                        .labelStyle(.titleAndIcon)
                         .help("Dừng việc đang chép, thoát app chạy từ Kho rồi tháo ổ an toàn")
                         .disabled(model.isEjecting)
                 }
@@ -107,7 +110,9 @@ struct DashboardView: View {
                     if let k = model.khoVolume {
                         Figure(value: ByteFormat.string(k.available), caption: "còn trống trên Kho")
                     }
-                    Figure(value: ByteFormat.string(model.holdingBytes), caption: "trong vùng chờ")
+                    if model.holdingBytes > 0 {
+                        Figure(value: ByteFormat.string(model.holdingBytes), caption: "trong vùng chờ")
+                    }
                     Spacer()
                 }
                 ProgressView(value: fraction)
@@ -136,8 +141,8 @@ struct DashboardView: View {
 
     private var suggestionItems: [Suggestion] {
         var out: [Suggestion] = []
-        let cleanable = model.cleanupCandidates.filter { !$0.manualOnly }
-        let cleanBytes = cleanable.reduce(Int64(0)) { $0 + $1.estimatedBytes }
+        let cleanable = model.safeCleanupCandidates
+        let cleanBytes = model.safeCleanupBytes
         if cleanBytes > 0 {
             out.append(Suggestion(id: "cleanup", title: "Dọn cache và rác", detail: "\(cleanable.count) nhóm xoá an toàn, app tự tạo lại",
                                   bytes: cleanBytes, systemImage: "trash", go: .cleanup))
@@ -168,10 +173,12 @@ struct DashboardView: View {
              footer: items.isEmpty ? nil : "Cất vào Kho luôn qua vùng chờ \(model.holdDays) ngày, hoàn tác được.") {
             if items.isEmpty {
                 if model.isScanningApps || model.isScanningCleanup {
+                    // Same height as two suggestions, so the page does not jump when they arrive.
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
-                        Text("Đang tìm chỗ có thể giải phóng…").foregroundStyle(.secondary)
+                        Text("Đang tìm chỗ có thể giải phóng… (khoảng nửa phút)").foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
                 } else {
                     Text("Chưa tìm thấy gì đáng giải phóng. Bấm Quét để đo lại.").foregroundStyle(.secondary)
                 }
@@ -213,12 +220,7 @@ struct DashboardView: View {
                 }
                 ForEach(model.externalVolumes) { v in volumeRow(v) }
             } else if let v = model.khoVolume {
-                HStack {
-                    StatusLabel("Đang cắm · \(v.name)", systemImage: "externaldrive.fill.badge.checkmark", tint: .green)
-                    Spacer()
-                    Text("\(ByteFormat.string(v.available)) trống / \(ByteFormat.string(v.total))")
-                        .monospacedDigit().foregroundStyle(.secondary)
-                }
+                StatusLabel("Đang cắm · \(v.name)", systemImage: "externaldrive.fill.badge.checkmark", tint: .green)
                 CapacityBar(label: "Kho \(v.name)", total: v.total, free: v.available)
             } else {
                 StatusLabel("Kho chưa cắm — vẫn tìm được trong Danh mục", systemImage: "externaldrive.badge.xmark",
@@ -286,7 +288,7 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var environmentSection: some View {
-        if !model.hasFullDiskAccess || model.hasTimeMachine == false {
+        if !model.hasFullDiskAccess || (model.hasTimeMachine == false && !hideNoBackupNotice) {
             Card(title: "Hệ thống") {
                 if !model.hasFullDiskAccess {
                     HStack {
@@ -296,9 +298,13 @@ struct DashboardView: View {
                         Button("Kiểm lại") { model.checkEnvironment() }
                     }
                 }
-                if model.hasTimeMachine == false {
-                    StatusLabel("Không có sao lưu Time Machine — sau vùng chờ, dữ liệu chỉ còn một bản trên Kho.",
-                                systemImage: "clock.badge.exclamationmark", tint: .secondary)
+                if model.hasTimeMachine == false && !hideNoBackupNotice {
+                    HStack {
+                        StatusLabel("Không có sao lưu Time Machine — sau vùng chờ, dữ liệu chỉ còn một bản trên Kho.",
+                                    systemImage: "clock.badge.exclamationmark", tint: .secondary)
+                        Spacer()
+                        Button("Đã biết, ẩn đi") { hideNoBackupNotice = true }
+                    }
                 }
             }
         }

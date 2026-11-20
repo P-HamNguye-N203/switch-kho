@@ -37,7 +37,8 @@ struct AnalyzerView: View {
                     Button { model.refreshRunning() } label: { Label("Kiểm app đang chạy", systemImage: "app.badge.checkmark") }
                         .help("Kiểm lại app nào đang chạy")
                         .disabled(model.appDataMap == nil)
-                    Button { model.scanApps() } label: { Label("Quét", systemImage: "arrow.clockwise") }
+                    Button { model.scanApps() } label: { Label("Quét lại", systemImage: "arrow.clockwise") }
+                        .labelStyle(.titleAndIcon)
                         .help("Đo lại dung lượng từng ứng dụng (⌘R)")
                         .keyboardShortcut("r", modifiers: .command)
                         .disabled(model.isScanningApps)
@@ -70,7 +71,7 @@ struct AnalyzerView: View {
             if map.unreadable > 0 {
                 StatusLabel("\(map.unreadable) thư mục không đọc được (cần Full Disk Access?)", systemImage: "lock.fill")
             }
-            GroupBox("Không rõ app (\(map.unassigned.count))") {
+            GroupBox("Thư mục chưa biết thuộc app nào (\(map.unassigned.count.formatted(.number.locale(VN.locale))))") {
                 List(map.unassigned) { f in
                     HStack {
                         Text("\(f.area.rawValue)/\(f.url.lastPathComponent)").lineLimit(1).truncationMode(.middle)
@@ -79,6 +80,7 @@ struct AnalyzerView: View {
                         Text(ByteFormat.string(f.allocated)).monospacedDigit().foregroundStyle(.secondary)
                         Button("Gán…") { assignTo = ""; assigning = f }
                             .buttonStyle(.borderless)
+                            .fixedSize()
                             .help("Gán thư mục này cho một ứng dụng")
                     }
                     .help(f.url.path)

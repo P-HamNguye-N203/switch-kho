@@ -42,6 +42,7 @@ struct LiveView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { adding = true } label: { Label("Thêm app", systemImage: "plus") }
+                    .labelStyle(.titleAndIcon)
                     .disabled(model.kho == nil)
                     .help(model.kho == nil ? "Cắm Kho trước" : "Chọn một app để chạy dữ liệu của nó từ Kho")
             }

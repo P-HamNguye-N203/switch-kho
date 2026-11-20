@@ -138,14 +138,17 @@ public enum AppDataMapper {
     /// Assigns every top-level folder of the `~/Library` areas to an app, or to `unassigned`.
     /// `overrides` maps a folder path to a bundle id chosen by the user.
     public static func map(home: URL, apps: [InstalledApp], overrides: [String: String],
-                           extraHints: [String: [String]] = [:]) -> AppDataMap {
+                           extraHints: [String: [String]] = [:],
+                           progress: ((Double) -> Void)? = nil) -> AppDataMap {
         let library = home.appendingPathComponent("Library")
         let ownData = library.appendingPathComponent("Application Support/SwitchKho")
         var byApp: [String: [AppDataFolder]] = [:]
         var unassigned: [AppDataFolder] = []
         var unreadable = 0
 
-        for area in LibraryArea.allCases {
+        let areas = LibraryArea.allCases
+        for (index, area) in areas.enumerated() {
+            progress?(0.8 * Double(index) / Double(areas.count))
             let base = library.appendingPathComponent(area.rawValue)
             guard let names = try? FileManager.default.contentsOfDirectory(atPath: base.path) else {
                 unreadable += 1
@@ -174,6 +177,7 @@ public enum AppDataMapper {
             }
         }
 
+        progress?(0.8)
         let footprints = apps.map { app in
             AppFootprint(app: app, bundleAllocated: stats(app.url).allocated,
                          folders: (byApp[app.bundleID] ?? []).sorted { $0.allocated > $1.allocated })

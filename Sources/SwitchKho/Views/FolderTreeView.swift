@@ -9,19 +9,20 @@ struct FolderTreeView: View {
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Button("Chọn thư mục…") { choose() }
-                Button("Quét thư mục nhà") { model.scanFolder(FileManager.default.homeDirectoryForCurrentUser) }
-                if model.isScanningFolder {
-                    ProgressView().controlSize(.small)
-                    Text("Đang quét…").font(.callout).foregroundStyle(.secondary)
+            if model.folderScan != nil {
+                HStack {
+                    Button("Quét thư mục khác…") { choose() }
+                    if model.isScanningFolder {
+                        ProgressView().controlSize(.small)
+                        Text("Đang quét…").font(.callout).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Stepper("Coi là lâu không dùng sau \(model.staleDays) ngày", value: $model.staleDays, in: 30...1000, step: 30)
+                        .monospacedDigit()
+                        .fixedSize()
                 }
-                Spacer()
-                Stepper("Lâu không dùng: \(model.staleDays) ngày", value: $model.staleDays, in: 30...1000, step: 30)
-                    .monospacedDigit()
-                    .frame(maxWidth: 260)
+                .disabled(model.isScanningFolder)
             }
-            .disabled(model.isScanningFolder)
             if let scan = model.folderScan {
                 let current = model.folderPath.last ?? scan.root
                 breadcrumb(scan.root)
@@ -63,9 +64,20 @@ struct FolderTreeView: View {
                                 systemImage: "lock.fill")
                 }
             } else {
-                ContentUnavailableView("Chưa quét", systemImage: "folder.badge.questionmark",
-                                       description: Text("Chọn một thư mục để xem dung lượng theo cây."))
+                if model.isScanningFolder {
+                    ProgressView("Đang quét thư mục…").fillCentered()
+                } else {
+                    ContentUnavailableView {
+                        Label("Xem thư mục nào chiếm chỗ", systemImage: "folder.badge.questionmark")
+                    } description: {
+                        Text("Quét để thấy dung lượng theo cây, file lớn nhất và file lâu không mở.")
+                    } actions: {
+                        Button("Quét thư mục nhà") { model.scanFolder(FileManager.default.homeDirectoryForCurrentUser) }
+                            .buttonStyle(.borderedProminent)
+                        Button("Chọn thư mục…") { choose() }
+                    }
                     .fillCentered()
+                }
             }
         }
     }
