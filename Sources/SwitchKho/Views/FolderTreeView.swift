@@ -36,6 +36,7 @@ struct FolderTreeView: View {
                     }
                     .contextMenu(forSelectionType: ScanNode.ID.self) { ids in
                         Button("Hiện trong Finder") { reveal(ids, in: current) }
+                        offloadButtons(current.children.filter { ids.contains($0.id) }.map(\.url))
                     } primaryAction: { ids in
                         // Double-click or Return opens a folder.
                         if let node = current.children.first(where: { ids.contains($0.id) && $0.isDirectory }) {
@@ -89,7 +90,19 @@ struct FolderTreeView: View {
             Text(ByteFormat.string(size)).monospacedDigit().foregroundStyle(.secondary)
         }
         .help(url.path)
-        .contextMenu { Button("Hiện trong Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) } }
+        .contextMenu {
+            Button("Hiện trong Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            offloadButtons([url])
+        }
+    }
+
+    @ViewBuilder
+    private func offloadButtons(_ urls: [URL]) -> some View {
+        Divider()
+        Button("Cất vào Kho") { model.offloadPersonal(urls) }
+            .disabled(urls.isEmpty || model.kho == nil)
+        Button("Cất vào Kho, để lại liên kết") { model.offloadPersonal(urls, leaveSymlink: true) }
+            .disabled(urls.isEmpty || model.kho == nil)
     }
 
     private func reveal(_ ids: Set<ScanNode.ID>, in node: ScanNode) {

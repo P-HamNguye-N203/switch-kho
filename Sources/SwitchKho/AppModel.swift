@@ -35,6 +35,8 @@ final class AppModel {
     let policy = PathPolicy.live()
     let copier = VerifiedCopier()
     let offloadService: OffloadService
+    /// Searchable index of the Kho, in its own database next to the ledger.
+    let catalog: CatalogStore
     let linkRoot: URL
     private let khoCell = KhoCell()
     private let appIndex = AppIndexCell()
@@ -49,6 +51,8 @@ final class AppModel {
     var recoveryReport: RecoveryReport?
     var offerLedgerRestore = false
     var holdingRows: [HoldingRow] = []
+    /// Personal archives still in holding or on the Kho.
+    var personalArchives: [LedgerOperation] = []
     var holdingBytes: Int64 = 0
     var lastError: String?
     /// Short success message shown at the bottom of the window, cleared after a few seconds.
@@ -60,6 +64,8 @@ final class AppModel {
     var liveIssues: [Int64: [LiveStatus]] = [:]
     var liveSelection: String?
     var isEjecting = false
+    /// Bumped whenever the catalog or the rules change, so views reload.
+    var catalogGeneration = 0
     /// Only the normal data folder registers the real app as a login item; test sessions don't.
     var usesDefaultDataDir: Bool {
         FileOps.same(dataDir, FileManager.default.homeDirectoryForCurrentUser
@@ -173,6 +179,12 @@ final class AppModel {
         holding = HoldingArea(root: dataDir.appendingPathComponent("Holding"))
         linkRoot = dataDir.appendingPathComponent("KhoLink")
         let khoCell = self.khoCell, appIndex = self.appIndex, ledger = self.ledger
+        // Opened before the service, which reports every change on the Kho to it.
+        catalog = try CatalogStore(path: dataDir.appendingPathComponent("catalog.sqlite"))
+        let catalogHook = CatalogSync.makeHook(
+            store: catalog, queue: jobQueue,
+            khoUUID: { khoCell.value.withLock { $0?.uuid } },
+            khoRoot: { khoCell.value.withLock { $0?.layout.khoRoot } })
         offloadService = OffloadService(
             ledger: ledger, holding: holding, policy: policy, copier: copier, linkRoot: linkRoot,
             mountedKho: { khoCell.value.withLock { $0 } },
@@ -183,7 +195,8 @@ final class AppModel {
                 let url = appIndex.value.withLock { $0[bundleID] }
                     ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
                 return RunningProcesses.isRunning(bundleID: bundleID, appURL: url)
-            })
+            },
+            onKhoChanged: catalogHook)
 
         observeJobs()
         refreshVolumes()
@@ -191,6 +204,9 @@ final class AppModel {
         observeWorkspace()
         liveGuard = LiveGuard(model: self)
         liveGuard?.start()
+        Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.enqueueAutoRules() }
+        }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.enqueueCommitDue() }
         }
@@ -257,7 +273,11 @@ final class AppModel {
         } catch {
             lastError = error.localizedDescription
         }
-        if !wasMounted && confirmed != nil { enqueueRecoverAndCommit() }
+        if !wasMounted && confirmed != nil {
+            enqueueRecoverAndCommit()
+            indexKhoIfStale()
+            enqueueAutoRules()
+        }
         refreshOperations()
         liveGuard?.volumesChanged(wasMounted: wasMounted, isMounted: confirmed != nil)
     }
@@ -446,6 +466,9 @@ final class AppModel {
             return HoldingRow(op: op, items: items,
                               bytes: items.reduce(0) { $0 + ($1.allocated ?? 0) },
                               overdue: op.state == .holding && (op.holdingUntil ?? .distantFuture) <= now)
+        }
+        personalArchives = ((try? ledger.operations()) ?? []).filter {
+            $0.kind == .personal && [.holding, .committed, .undoing, .restoring].contains($0.state)
         }
         archivedApps = ((try? ledger.operations()) ?? []).filter {
             $0.kind == .appCold && [.holding, .committed, .undoing, .restoring, .committing].contains($0.state)

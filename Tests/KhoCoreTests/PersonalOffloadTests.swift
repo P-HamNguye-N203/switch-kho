@@ -43,6 +43,8 @@ import Testing
         let opID = try #require(result.opID)
         #expect(result.skipped.isEmpty)
         #expect(try await eventually(queue) { try store.search("bao cao").count == 1 })
+        let hit = try #require(try store.search("bao cao").first)
+        #expect(hit.item.relPath == fx.rel(dir.appendingPathComponent("Báo cáo năm.pdf")))
         try PersonalOffload.bringBack(opID: opID, service: fx.service, ledger: fx.ledger)
         #expect(try await eventually(queue) { try store.search("bao cao").isEmpty })
         #expect(FileOps.exists(dir.appendingPathComponent("anh.jpg")))
