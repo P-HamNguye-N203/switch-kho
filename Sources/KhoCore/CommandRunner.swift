@@ -27,15 +27,18 @@ public enum CommandRunner {
         process.standardError = pipe
         process.standardInput = FileHandle.nullDevice
         let box = Box()
-        // Drain continuously so a chatty tool never blocks on a full pipe.
-        pipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                handle.readabilityHandler = nil
-                box.eof.withLock { $0 = true }
-            } else {
+        // One reader drains the pipe on its own thread (so a chatty tool never blocks on a full
+        // pipe) and marks end-of-file only after its last chunk is stored, so nothing is lost.
+        let reader = pipe.fileHandleForReading
+        Thread.detachNewThread {
+            // availableData returns as soon as anything arrives (read(upToCount:) would wait
+            // for a full buffer, holding back output while a child keeps the pipe open).
+            while true {
+                let chunk = reader.availableData
+                if chunk.isEmpty { break }
                 box.data.withLock { $0.append(chunk) }
             }
+            box.eof.withLock { $0 = true }
         }
 
         let status: Int32 = try await withCheckedThrowingContinuation { (c: CheckedContinuation<Int32, Error>) in
@@ -44,6 +47,7 @@ public enum CommandRunner {
                 try process.run()
             } catch {
                 process.terminationHandler = nil
+                try? pipe.fileHandleForWriting.close()   // lets the reader thread finish
                 c.resume(throwing: KhoError.io("Không chạy được \(exe.lastPathComponent): \(error.localizedDescription)"))
                 return
             }
@@ -51,13 +55,14 @@ public enum CommandRunner {
                 if process.isRunning {
                     box.timedOut.withLock { $0 = true }
                     let pid = process.processIdentifier
-                    // A tool that ignores SIGTERM must not hold the job queue forever; schedule
-                    // the hard kill first so a stuck child lookup cannot prevent it.
+                    // A tool that ignores SIGTERM must not hold the job queue forever.
                     timerQueue.asyncAfter(deadline: .now() + 3) {
                         if process.isRunning { kill(pid, SIGKILL) }
                     }
-                    killChildren(of: pid)
                     process.terminate()
+                    // pkill waits for its own exit; keep it off the timer queue so it cannot
+                    // delay the hard kill above or any other command's timeout.
+                    Thread.detachNewThread { killChildren(of: pid) }
                 }
             }
         }
@@ -70,7 +75,6 @@ public enum CommandRunner {
                 try? await Task.sleep(for: .milliseconds(20))
             }
         }
-        pipe.fileHandleForReading.readabilityHandler = nil
         if box.timedOut.withLock({ $0 }) { throw KhoError.io("Quá thời gian") }
         let output = String(decoding: box.data.withLock { $0 }, as: UTF8.self)
         return CommandResult(exitCode: status, output: output)

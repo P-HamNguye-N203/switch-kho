@@ -75,11 +75,15 @@ public enum InUseCheck {
             try? pipe.fileHandleForWriting.close()
             return .unknown
         }
-        // Our copy of the write end must be closed, or the reader never sees end-of-file.
+        // Foundation closes our write end after launch; closing again is a harmless no-op that
+        // keeps end-of-file guaranteed for the reader.
         try? pipe.fileHandleForWriting.close()
         if done.wait(timeout: .now() + timeout) == .timedOut {
             let pid = p.processIdentifier
-            CommandRunner.timerQueue.asyncAfter(deadline: .now() + 3) { kill(pid, SIGKILL) }
+            CommandRunner.timerQueue.asyncAfter(deadline: .now() + 3) {
+                // Only if it is still ours: once reaped, the PID may belong to another process.
+                if p.isRunning { kill(pid, SIGKILL) }
+            }
             p.terminate()
             return .unknown
         }

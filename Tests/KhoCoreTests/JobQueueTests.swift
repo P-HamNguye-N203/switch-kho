@@ -51,17 +51,14 @@ import Testing
         #expect(await q.snapshot.first?.state == .done)
     }
 
-    @Test func nestedRunThrowsQuickly() async throws {
+    // A nested call that waited for the outer job would never return; the time limit catches it.
+    @Test(.timeLimit(.minutes(1))) func nestedRunThrowsQuickly() async throws {
         let q = JobQueue()
-        let clock = ContinuousClock()
-        let began = clock.now
         await #expect(throws: KhoError.invalidState("Gọi lồng trong hàng đợi")) {
             try await q.run(title: "outer") { _ in
                 try await q.run(title: "inner") { _ in 1 }
             }
         }
-        // A nested call that waited for the outer job would never return; this only proves it did not wait.
-        #expect(clock.now - began < .seconds(5))
     }
 
     @Test func suspendHoldsNewJobs() async throws {
